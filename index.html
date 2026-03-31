@@ -9,8 +9,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html, body {
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     overflow: hidden;
     background: #111;
   }
@@ -22,28 +21,29 @@
     overflow-y: hidden;
     display: flex;
     align-items: center;
-    cursor: default;
   }
-
   #scroll-wrapper::-webkit-scrollbar { display: none; }
   #scroll-wrapper { scrollbar-width: none; }
 
+  /* #world IS the plane — white, shrinks in width each frame */
   #world {
     position: relative;
-    width: 6000px;
-    height: 160px;
-    flex-shrink: 0;
-  }
-
-  #plane {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
     height: 100px;
     background: #fff;
     overflow: hidden;
-    /* left and width set by JS */
+    flex-shrink: 0;
+    /* width set by JS */
   }
+
+  .symbol {
+    position: absolute;
+    top: 50%;
+    width: 40px; height: 40px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #sym-l { transform: translateY(-50%); }
+  #sym-r { transform: translateY(calc(-50% + 3px)); } /* permanent 3px offset */
 
   .text-section {
     position: absolute;
@@ -53,49 +53,81 @@
     font-size: 17px;
     color: #000;
     white-space: nowrap;
-    line-height: 1.5;
     pointer-events: none;
-    /* left set by JS, opacity set by JS */
+    line-height: 1;
   }
 
   .mark {
     position: absolute;
     font-family: 'VT323', monospace;
-    font-size: 13px;
+    font-size: 12px;
     color: #000;
     opacity: 0.08;
     pointer-events: none;
   }
 
-  .symbol {
+  #goto-end {
     position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 40px;
-    height: 40px;
-    pointer-events: none;
-    z-index: 10;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #c00;
+    color: #fff;
+    border: none;
+    padding: 4px 14px;
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 50;
+    letter-spacing: 0.05em;
   }
 
-  #crack {
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    background: #000;
-    width: 0;
-    height: 0;
-    z-index: 20;
+  /* White screen overlay — expands during separation */
+  #white-screen {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
     pointer-events: none;
+    z-index: 50;
+  }
+
+  /* Begin overlay */
+  #begin-overlay {
+    position: fixed;
+    inset: 0;
+    background: #111;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    transition: opacity 1.4s ease;
+  }
+
+  #begin-btn {
+    width: 80px; height: 80px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.45);
+    color: rgba(255,255,255,0.6);
+    font-family: 'VT323', monospace;
+    font-size: 19px;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    transition: border-color 0.25s, color 0.25s;
+  }
+  #begin-btn:hover {
+    border-color: rgba(255,255,255,0.85);
+    color: rgba(255,255,255,0.9);
   }
 
   #clock {
     position: fixed;
-    bottom: 14px;
-    right: 18px;
+    bottom: 14px; right: 18px;
     font-family: monospace;
-    font-size: 9px;
+    font-size: 13px;
     color: #fff;
-    opacity: 0.15;
+    opacity: 0.4;
     letter-spacing: 0.05em;
     pointer-events: none;
     z-index: 100;
@@ -106,448 +138,385 @@
 
 <div id="scroll-wrapper">
   <div id="world">
-    <div id="plane"></div>
+    <div class="symbol" id="sym-l"></div>
+    <div class="symbol" id="sym-r"></div>
+    <button id="goto-end">GO TO END</button>
   </div>
+</div>
+
+<div id="white-screen"></div>
+
+<div id="begin-overlay">
+  <button id="begin-btn">begin</button>
 </div>
 
 <div id="clock">00:00:00</div>
 
-<audio id="audio" loop preload="auto">
-  <source src="webartsong.mp3" type="audio/mpeg">
-</audio>
-
 <script>
-// ─── CONFIG ───────────────────────────────────────────────────────────────────
-const WORLD_W       = 6000;
-const PLANE_H       = 100;
-const SYM_W         = 40;
-const SYM_H         = 40;
-const SHRINK_DUR    = 300;   // seconds for full shrink
-const MAX_MARGIN    = (WORLD_W - SYM_W * 2) / 2;  // 2960px
-const MIN_SOUND     = 0.12;
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const FULL_W       = 24000;
+const SYM_W        = 40;
+const PLANE_H      = 100;
+const SHRINK_DUR   = 300;
+// Flat edge of each SVG is at x=20 of the 40px viewBox.
+// For flat edges to touch: minWidth = SYM_W (one symbol width = 40px),
+// because right sym is at left: currentWidth-40 → flat at (currentWidth-40+20).
+// Touch when currentWidth-40+20 = 20 → currentWidth = 40 = SYM_W.
+const MAX_MARGIN   = (FULL_W - SYM_W) / 2;          // 11980
+const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;  // 5× faster separation
+const CROSSFADE    = 3;   // seconds
 
-// Text world positions (left edge of text block, in world coordinates)
+// ── SECTIONS ──────────────────────────────────────────────────────────────────
 const SECTIONS = [
-  {
-    id: 'L1', worldX: 350, side: 'left',
-    lines: [
-      'the wall begins here at the water',
-      'this is the first day',
-      'the body knows only that it is moving',
-      'facing west'
-    ]
-  },
-  {
-    id: 'L2', worldX: 1500, side: 'left',
-    lines: [
-      'this was supposed to be something else',
-      'by the time we started',
-      'it had already become an ending',
-      'i wonder what your end looks like',
-      'the distance behind is the same',
-      'as the distance ahead',
-      'still walking'
-    ]
-  },
-  {
-    id: 'L3', worldX: 2600, side: 'left',
-    lines: [
-      'the end is legible now',
-      'every step toward',
-      'every step away',
-      'this is how you end something large',
-      'you make it last long enough',
-      'to deserve what it was',
-      'i am almost there'
-    ]
-  },
-  {
-    id: 'R3', worldX: 3400, side: 'right',
-    lines: [
-      'almost',
-      'the ground is hard here',
-      'i have been walking toward this',
-      'it will be enough'
-    ]
-  },
-  {
-    id: 'R2', worldX: 4500, side: 'right',
-    lines: [
-      'the same day again',
-      'the wall crumbles here',
-      'no one restored it',
-      'i think of the other end',
-      'what it was supposed to be',
-      'still'
-    ]
-  },
-  {
-    id: 'R1', worldX: 5650, side: 'right',
-    lines: [
-      'the wall ends here at the sand',
-      'day one',
-      'facing east',
-      'the wind was cold'
-    ]
-  }
+  { id:'L1',  worldX: 1400,  side:'left',
+    lines:['the wall begins here at the water','this is the first day',
+           'the body knows only that it is moving','facing west'] },
+  { id:'L1h', worldX: 4200,  side:'left',
+    lines:['somewhere between the first step and the last','i stopped counting days',
+           'the body carries what the mind tries to put down',
+           'grief is just love with nowhere to go'] },
+  { id:'L2',  worldX: 7000,  side:'left',
+    lines:['this was supposed to be something else',
+           'by the time we started it had already become an ending',
+           'i wonder what your end looks like',
+           'the distance behind is the same as the distance ahead','still walking'] },
+  { id:'L2h', worldX: 9600,  side:'left',
+    lines:['i did not expect the silence to have a shape','to fill the lungs like this',
+           'i have been holding my breath for weeks',
+           'something i cannot name is ending','it has been ending for a long time'] },
+  { id:'L3',  worldX: 11200, side:'left',
+    lines:['the end is legible now','every step toward','every step away',
+           'this is how you end something large',
+           'you make it last long enough to deserve what it was','i am almost there'] },
+  { id:'R3',  worldX: 12800, side:'right',
+    lines:['almost','the ground is hard here',
+           'i have been walking toward this','it will be enough'] },
+  { id:'R2h', worldX: 14400, side:'right',
+    lines:['less and less to carry','or the same weight felt differently',
+           'almost light','the wall is just stone now','it was always just stone'] },
+  { id:'R2',  worldX: 17000, side:'right',
+    lines:['the same day again','the wall crumbles here','no one restored it',
+           'i think of the other end','what it was supposed to be','still'] },
+  { id:'R1h', worldX: 19800, side:'right',
+    lines:['the wind is different here than it was','the wall shows its age',
+           'i do not know what i am walking toward','only that i am walking',
+           'every step is a small farewell'] },
+  { id:'R1',  worldX: 22600, side:'right',
+    lines:['the wall ends here at the sand','day one','facing east','the wind was cold'] },
 ];
 
-// Sparse marks: [worldX, planeLocalY_fraction, glyph]
-const MARKS_DATA = [
-  [180, 0.25, '·'], [420, 0.72, '—'], [710, 0.4, '·'],
-  [950, 0.6, '×'], [1100, 0.3, '·'], [1280, 0.8, '—'],
-  [1650, 0.45, '·'], [1820, 0.2, '·'], [2050, 0.65, '×'],
-  [2200, 0.38, '·'], [2350, 0.7, '—'], [2480, 0.5, '·'],
-  [2700, 0.3, '×'], [2800, 0.6, '·'], [2900, 0.25, '—'],
-  [3050, 0.7, '·'], [3150, 0.4, '×'], [3300, 0.55, '·'],
-  [3450, 0.8, '—'], [3600, 0.35, '·'], [3780, 0.6, '·'],
-  [3950, 0.22, '×'], [4150, 0.75, '·'], [4320, 0.5, '—'],
-  [4480, 0.3, '·'], [4650, 0.65, '·'], [4850, 0.4, '×'],
-  [5000, 0.7, '·'], [5150, 0.28, '—'], [5300, 0.55, '·'],
-  [5500, 0.4, '·'], [5720, 0.62, '·'], [5850, 0.35, '×'],
-  [760, 0.55, '·'], [1400, 0.3, '—'], [2150, 0.8, '·'],
-  [3700, 0.45, '·'], [4080, 0.6, '—'], [4700, 0.22, '·'],
-  [5200, 0.7, '×']
-];
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let started   = false;
+let startTime = null;
+let elapsed   = 0;
+let margin    = 0;
+let phase     = 0;  // 0=shrink 1=hold 2=separate 3=done
+let phaseT    = 0;
+let lastT     = null;
+let symOpacity = 1;
 
-// ─── STATE ────────────────────────────────────────────────────────────────────
-let startTime     = null;
-let elapsed       = 0;
-let margin        = 0;
-let phase         = 0; // 0=shrinking 1=passthrough 2=circle 3=crack 4=expansion
-let phaseTimer    = 0;
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const world        = document.getElementById('world');
+const wrapper      = document.getElementById('scroll-wrapper');
+const symLEl       = document.getElementById('sym-l');
+const symREl       = document.getElementById('sym-r');
+const whiteScreen  = document.getElementById('white-screen');
+const beginOverlay = document.getElementById('begin-overlay');
+const beginBtn     = document.getElementById('begin-btn');
+const gotoEndBtn   = document.getElementById('goto-end');
+const clockEl      = document.getElementById('clock');
 
-// Symbol positions in world coords (left edge of symbol)
-let symLX = 0;
-let symRX = WORLD_W - SYM_W;
-
-// Meeting pass-through
-let passDuration   = 1.5;
-let passStartLX    = 0;
-let passStartRX    = 0;
-let passTargetOffset = 30; // how far they pass each other
-
-// Crack element
-let crackMaxW = 60, crackMaxH = 90;
-let crackCenterX = WORLD_W / 2;
-
-// Audio
-let audioUnlocked = false;
-const audio = document.getElementById('audio');
-
-// ─── DOM SETUP ────────────────────────────────────────────────────────────────
-const world      = document.getElementById('world');
-const plane      = document.getElementById('plane');
-const wrapper    = document.getElementById('scroll-wrapper');
-const clockEl    = document.getElementById('clock');
-
-// Symbols (SVG semicircles)
-function makeSVG(facing) {
-  // facing: 'right' = D shape (right-facing open half)
-  //         'left'  = C shape (left-facing open half)
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', SYM_W);
-  svg.setAttribute('height', SYM_H);
+// ── SYMBOLS ───────────────────────────────────────────────────────────────────
+function makeSVG(d) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', 40); svg.setAttribute('height', 40);
   svg.setAttribute('viewBox', '0 0 40 40');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  if (facing === 'right') {
-    // Right-facing D: flat edge on left, arc on right
-    path.setAttribute('d', 'M20,4 A16,16 0 0,1 20,36 L20,4 Z');
-  } else {
-    // Left-facing C: flat edge on right, arc on left
-    path.setAttribute('d', 'M20,4 A16,16 0 0,0 20,36 L20,4 Z');
+  const p = document.createElementNS(ns, 'path');
+  p.setAttribute('d', d); p.setAttribute('fill', '#000');
+  svg.appendChild(p); return svg;
+}
+// Left: C-shape, flat on right facing center
+symLEl.appendChild(makeSVG('M20,4 A16,16 0 0,0 20,36 Z'));
+// Right: D-shape, flat on left facing center
+symREl.appendChild(makeSVG('M20,4 A16,16 0 0,1 20,36 Z'));
+
+// ── TEXT ELEMENTS ─────────────────────────────────────────────────────────────
+const sectionStates = SECTIONS.map(sec => {
+  const el = document.createElement('div');
+  el.className = 'text-section';
+  world.appendChild(el);
+  return { sec, el, lineIdx: 0, twPhase: 'typing', twT: 0, displayText: '' };
+});
+
+// ── MARKS (seeded RNG) ────────────────────────────────────────────────────────
+const GLYPHS = ['.','·','—','×','∙'];
+const markEls = [];
+{
+  let s = 42;
+  const rng = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 0xffffffff; };
+  for (let i = 0; i < 160; i++) {
+    const wx = rng() * (FULL_W - 400) + 200;
+    const yf = rng();
+    const g  = GLYPHS[Math.floor(rng() * GLYPHS.length)];
+    const el = document.createElement('span');
+    el.className = 'mark';
+    el.textContent = g;
+    el.style.top = Math.floor(yf * PLANE_H) + 'px';
+    el.dataset.wx = wx;
+    world.appendChild(el);
+    markEls.push(el);
   }
-  path.setAttribute('fill', '#000');
-  svg.appendChild(path);
-  return svg;
 }
 
-const symLEl = document.createElement('div');
-symLEl.className = 'symbol';
-symLEl.appendChild(makeSVG('right'));
-world.appendChild(symLEl);
+// ── AUDIO (Web Audio API) ─────────────────────────────────────────────────────
+let audioCtx    = null;
+let masterGain  = null;
+let audioBuffer = null;
+let audioReady  = false;
+let audioStarted = false;
 
-const symREl = document.createElement('div');
-symREl.className = 'symbol';
-symREl.appendChild(makeSVG('left'));
-world.appendChild(symREl);
+async function initAudio() {
+  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+  try {
+    const res = await fetch('webartsong2.mp3');
+    const ab  = await res.arrayBuffer();
+    audioBuffer = await audioCtx.decodeAudioData(ab);
+    audioReady = true;
+  } catch(e) { console.warn('audio load failed', e); }
+}
 
-// Crack element
-const crackEl = document.createElement('div');
-crackEl.id = 'crack';
-world.appendChild(crackEl);
+function scheduleLoop(startWhen, offset) {
+  if (!audioBuffer) return;
+  const dur    = audioBuffer.duration;
+  const playLen = dur - offset;
 
-// Text sections
-const sectionEls = SECTIONS.map(sec => {
-  const div = document.createElement('div');
-  div.className = 'text-section';
-  div.dataset.id = sec.id;
-  // We'll manage content via typewriter
-  plane.appendChild(div);
-  return { sec, el: div, charIdx: 0, lineIdx: 0, phase: 'typing', phaseT: 0, displayText: '' };
+  const sg  = audioCtx.createGain();
+  sg.connect(masterGain);
+  const src = audioCtx.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(sg);
+
+  // fade in
+  sg.gain.setValueAtTime(0, startWhen);
+  sg.gain.linearRampToValueAtTime(1, startWhen + CROSSFADE);
+  // fade out near end
+  const foAt = Math.max(startWhen + CROSSFADE + 0.01, startWhen + playLen - CROSSFADE);
+  sg.gain.setValueAtTime(1, foAt);
+  sg.gain.linearRampToValueAtTime(0, startWhen + playLen);
+
+  src.start(startWhen, offset);
+  src.stop(startWhen + playLen + 0.1);
+
+  const nextWhen = startWhen + playLen - CROSSFADE;
+  const delay = Math.max(0, (nextWhen - audioCtx.currentTime - 1) * 1000);
+  setTimeout(() => scheduleLoop(nextWhen, 0), delay);
+}
+
+function startAudio() {
+  if (audioStarted || !audioReady) return;
+  audioStarted = true;
+  scheduleLoop(audioCtx.currentTime, 0);
+}
+
+function setMasterVol(v) {
+  if (masterGain) masterGain.gain.value = Math.max(0, Math.min(1, v));
+}
+
+// ── BEGIN ─────────────────────────────────────────────────────────────────────
+beginBtn.addEventListener('click', async () => {
+  if (started) return;
+  started = true;
+  await audioCtx.resume();
+  startAudio();
+  beginOverlay.style.opacity = '0';
+  setTimeout(() => { beginOverlay.style.display = 'none'; }, 1500);
+  // center scroll
+  wrapper.scrollLeft = (FULL_W - window.innerWidth) / 2;
 });
 
-// Marks
-MARKS_DATA.forEach(([wx, yf, glyph]) => {
-  const span = document.createElement('span');
-  span.className = 'mark';
-  span.textContent = glyph;
-  span.style.left = (wx - 0) + 'px'; // relative to plane left, adjusted each frame
-  span.style.top = (yf * PLANE_H) + 'px';
-  span.dataset.worldX = wx;
-  plane.appendChild(span);
-});
-
-const markEls = plane.querySelectorAll('.mark');
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-function lerp(a, b, t)    { return a + (b - a) * t; }
-
-function textOpacity(worldX, side, currentMargin) {
-  let dist;
-  if (side === 'left') {
-    dist = worldX - currentMargin;
-  } else {
-    dist = (WORLD_W - worldX) - currentMargin;
+// GO TO END (debug)
+gotoEndBtn.addEventListener('click', async () => {
+  if (!started) {
+    started = true;
+    beginOverlay.style.display = 'none';
   }
-  dist = Math.max(0, dist);
-  const maxDist = 2500;
-  const raw = clamp(1 - dist / maxDist, 0, 1);
+  if (audioCtx) await audioCtx.resume();
+  startAudio();
+  margin = MAX_MARGIN;
+  phase  = 1;
+  phaseT = 0;
+  setMasterVol(1.0);
+});
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+const lerp  = (a,b,t)   => a + (b-a)*t;
+
+function textOpacity(worldX, side) {
+  const dist = side === 'left'
+    ? worldX - margin
+    : (FULL_W - worldX) - margin;
+  const raw = clamp(1 - Math.max(0, dist) / 4000, 0, 1);
   return lerp(0.05, 0.85, raw);
 }
 
-// ─── CLOCK ────────────────────────────────────────────────────────────────────
-let clockSec = 0;
-function updateClock(elapsedSec) {
-  const s = Math.floor(elapsedSec) % 60;
-  const m = Math.floor(elapsedSec / 60) % 60;
-  const h = Math.floor(elapsedSec / 3600);
+// ── CLOCK ─────────────────────────────────────────────────────────────────────
+function updateClock(sec) {
+  const s = Math.floor(sec) % 60;
+  const m = Math.floor(sec / 60) % 60;
+  const h = Math.floor(sec / 3600);
   clockEl.textContent =
-    String(h).padStart(2,'0') + ':' +
-    String(m).padStart(2,'0') + ':' +
-    String(s).padStart(2,'0');
+    String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
 }
 
-// ─── TYPEWRITER ───────────────────────────────────────────────────────────────
-// Each section cycles: type each line fully, hold, fade, pause, next line
-const TYPE_SPEED  = 0.04; // seconds per character
-const HOLD_DUR    = 8;
-const FADE_DUR    = 6;
-const PAUSE_DUR   = 2;
+// ── TYPEWRITER ────────────────────────────────────────────────────────────────
+const TYPE_SPD  = 0.04; // sec/char
+const HOLD_DUR  = 8;
+const FADE_DUR  = 6;
+const PAUSE_DUR = 2;
 
-function updateTypewriter(state, dt) {
-  const { sec } = state;
-  const lines = sec.lines;
-
-  state.phaseT += dt;
-
-  if (state.phase === 'typing') {
-    const fullLine = lines[state.lineIdx];
-    const charsToShow = Math.floor(state.phaseT / TYPE_SPEED);
-    state.displayText = fullLine.slice(0, charsToShow);
-    if (charsToShow >= fullLine.length) {
-      state.displayText = fullLine;
-      state.phase = 'hold';
-      state.phaseT = 0;
-    }
-  } else if (state.phase === 'hold') {
-    if (state.phaseT >= HOLD_DUR) {
-      state.phase = 'fade';
-      state.phaseT = 0;
-    }
-  } else if (state.phase === 'fade') {
-    if (state.phaseT >= FADE_DUR) {
-      state.displayText = '';
-      state.phase = 'pause';
-      state.phaseT = 0;
-    }
-  } else if (state.phase === 'pause') {
-    if (state.phaseT >= PAUSE_DUR) {
-      state.lineIdx = (state.lineIdx + 1) % lines.length;
-      state.phase = 'typing';
-      state.phaseT = 0;
-      state.displayText = '';
-    }
-  }
-
-  // Compute fade alpha overlay for the 'fade' phase
+function stepTypewriter(state, dt) {
+  const lines = state.sec.lines;
+  state.twT += dt;
   let fadeAlpha = 1;
-  if (state.phase === 'fade') {
-    fadeAlpha = clamp(1 - state.phaseT / FADE_DUR, 0, 1);
+
+  if (state.twPhase === 'typing') {
+    const chars = Math.floor(state.twT / TYPE_SPD);
+    state.displayText = lines[state.lineIdx].slice(0, chars);
+    if (chars >= lines[state.lineIdx].length) {
+      state.displayText = lines[state.lineIdx];
+      state.twPhase = 'hold'; state.twT = 0;
+    }
+  } else if (state.twPhase === 'hold') {
+    if (state.twT >= HOLD_DUR) { state.twPhase = 'fade'; state.twT = 0; }
+  } else if (state.twPhase === 'fade') {
+    fadeAlpha = clamp(1 - state.twT / FADE_DUR, 0, 1);
+    if (state.twT >= FADE_DUR) {
+      state.displayText = ''; state.twPhase = 'pause'; state.twT = 0;
+    }
+  } else if (state.twPhase === 'pause') {
+    fadeAlpha = 0;
+    if (state.twT >= PAUSE_DUR) {
+      state.lineIdx = (state.lineIdx + 1) % lines.length;
+      state.twPhase = 'typing'; state.twT = 0;
+    }
   }
-
-  return { text: state.displayText, fadeAlpha };
+  return fadeAlpha;
 }
 
-// ─── AUDIO ────────────────────────────────────────────────────────────────────
-function unlockAudio() {
-  if (!audioUnlocked) {
-    audio.volume = MIN_SOUND;
-    audio.play().catch(() => {});
-    audioUnlocked = true;
-  }
-}
-document.addEventListener('click', unlockAudio, { once: true });
-document.addEventListener('keydown', unlockAudio, { once: true });
-document.addEventListener('scroll', unlockAudio, { once: true, capture: true });
-wrapper.addEventListener('scroll', unlockAudio, { once: true });
-
-function setVolume(symDistance) {
-  if (!audioUnlocked) return;
-  // symDistance: pixels between inner edges of symbols (0 = touching)
-  const proximity = clamp(1 - symDistance / (WORLD_W - SYM_W * 2), 0, 1);
-  const vol = clamp(Math.pow(proximity, 1.2) * (1 - MIN_SOUND) + MIN_SOUND, MIN_SOUND, 1.0);
-  audio.volume = vol;
-}
-
-// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
-let lastT = null;
-
+// ── FRAME LOOP ────────────────────────────────────────────────────────────────
 function frame(ts) {
+  requestAnimationFrame(frame);
+
+  if (!started) return;
+
   if (!lastT) { lastT = ts; startTime = ts; }
   const dt = Math.min((ts - lastT) / 1000, 0.1);
   lastT = ts;
   elapsed = (ts - startTime) / 1000;
-
   updateClock(elapsed);
 
-  // ── PHASE 0: Shrinking ─────────────────────────────────────────────────────
+  // ── Phase 0: Shrink ──────────────────────────────────────────────────────
   if (phase === 0) {
-    const t = clamp(elapsed / SHRINK_DUR, 0, 1);
-    margin = t * MAX_MARGIN;
+    margin = clamp((elapsed / SHRINK_DUR) * MAX_MARGIN, 0, MAX_MARGIN);
+    if (margin >= MAX_MARGIN) { phase = 1; phaseT = 0; }
 
-    symLX = margin;
-    symRX = WORLD_W - margin - SYM_W;
-
-    if (margin >= MAX_MARGIN) {
-      phase = 1;
-      phaseTimer = 0;
-      passStartLX = symLX;
-      passStartRX = symRX;
+    // Audio volume: 0→0.2 over first 15s, then proximity-based
+    if (audioStarted) {
+      const currentW = FULL_W - 2 * margin;
+      const symDist  = currentW - SYM_W * 2;
+      const maxDist  = FULL_W - SYM_W * 2;
+      const proximity = clamp(1 - symDist / maxDist, 0, 1);
+      let vol;
+      if (elapsed < 15) {
+        vol = (elapsed / 15) * 0.2;
+      } else {
+        vol = lerp(0.2, 1.0, Math.pow(proximity, 1.2));
+      }
+      setMasterVol(vol);
     }
   }
 
-  // ── PHASE 1: Pass-through ─────────────────────────────────────────────────
+  // ── Phase 1: Hold (5s) ───────────────────────────────────────────────────
   else if (phase === 1) {
-    phaseTimer += dt;
-    const t = clamp(phaseTimer / passDuration, 0, 1);
-    const center = WORLD_W / 2;
-    // left symbol moves right past center, right symbol moves left past center
-    symLX = passStartLX + (passTargetOffset) * t;
-    symRX = passStartRX - (passTargetOffset) * t;
-    if (phaseTimer >= passDuration) {
-      phase = 2;
-      phaseTimer = 0;
-    }
+    margin = MAX_MARGIN;
+    phaseT += dt;
+    if (audioStarted) setMasterVol(1.0);
+    if (phaseT >= 5.0) { phase = 2; phaseT = 0; }
   }
 
-  // ── PHASE 2: Imperfect circle pause ────────────────────────────────────────
+  // ── Phase 2: Separation ──────────────────────────────────────────────────
   else if (phase === 2) {
-    phaseTimer += dt;
-    // symbols stay overlapping; slight vertical offset via CSS already
-    symLEl.style.marginTop = '3px';
-    if (phaseTimer >= 1.5) {
-      phase = 3;
-      phaseTimer = 0;
-      crackCenterX = (symLX + SYM_W + symRX) / 2;
-    }
-  }
+    phaseT += dt;
+    margin = Math.max(0, margin - DEPART_SPEED * dt);
 
-  // ── PHASE 3: Crack expansion ───────────────────────────────────────────────
-  else if (phase === 3) {
-    phaseTimer += dt;
-    const t = clamp(phaseTimer / 2.0, 0, 1);
-    const cw = crackMaxW * t;
-    const ch = crackMaxH * t;
-    crackEl.style.width  = cw + 'px';
-    crackEl.style.height = ch + 'px';
-    crackEl.style.left   = crackCenterX + 'px';
-    crackEl.style.top    = (PLANE_H / 2 + 80/2) + 'px'; // positioned on plane
-    if (phaseTimer >= 2.0) {
-      phase = 4;
-      phaseTimer = 0;
-    }
-  }
+    // white screen fades in over 15s
+    const ws = clamp(phaseT / 15.0, 0, 1);
+    whiteScreen.style.opacity = ws;
 
-  // ── PHASE 4: Expansion (separation renewed) ────────────────────────────────
-  else if (phase === 4) {
-    phaseTimer += dt;
-    // Plane slowly expands back, symbols separate
-    const expandRate = 1.5; // px per second per side
-    margin = Math.max(0, margin - expandRate * dt);
-    symLX = margin;
-    symRX = WORLD_W - margin - SYM_W;
-
-    // Fade crack
-    const crackOpacity = clamp(1 - phaseTimer / 3.0, 0, 1);
-    crackEl.style.opacity = crackOpacity;
-
-    // Fade audio
-    if (audioUnlocked) {
-      const vol = clamp(audio.volume - 0.003, 0, 1);
-      audio.volume = vol;
+    // symbol fade (after white is full)
+    if (phaseT > 15.0) {
+      symOpacity = clamp(1 - (phaseT - 15.0) / 10.0, 0, 1);
     }
 
-    symLEl.style.marginTop = '';
+    // audio fade
+    if (audioStarted) setMasterVol(clamp(1 - phaseT / 15.0, 0, 1));
+
+    if (phaseT > 26.0) { phase = 3; }
   }
 
-  // ── UPDATE PLANE VISUAL ────────────────────────────────────────────────────
-  const planeLeft  = margin;
-  const planeWidth = WORLD_W - 2 * margin;
-  plane.style.left  = planeLeft + 'px';
-  plane.style.width = Math.max(0, planeWidth) + 'px';
+  // ── Phase 3: Done ────────────────────────────────────────────────────────
+  // (held state)
 
-  // ── UPDATE SYMBOLS ─────────────────────────────────────────────────────────
-  symLEl.style.left = symLX + 'px';
-  symREl.style.left = symRX + 'px';
+  // ── Compute current plane width ──────────────────────────────────────────
+  const currentW = Math.max(SYM_W, FULL_W - 2 * margin);
+  world.style.width = currentW + 'px';
 
-  // ── SYMBOL DISTANCE FOR AUDIO ──────────────────────────────────────────────
-  const symDistance = Math.max(0, symRX - (symLX + SYM_W));
-  if (phase === 0 || phase === 1) setVolume(symDistance);
+  // ── Symbol positions ─────────────────────────────────────────────────────
+  symLEl.style.left = '0px';
+  symREl.style.left = (currentW - SYM_W) + 'px';
+  symLEl.style.opacity = symOpacity;
+  symREl.style.opacity = symOpacity;
 
-  // ── UPDATE TEXT SECTIONS ───────────────────────────────────────────────────
-  sectionEls.forEach(state => {
+  // ── Text ─────────────────────────────────────────────────────────────────
+  const showText = phase < 2;
+  sectionStates.forEach(state => {
     const { sec, el } = state;
-    const planeRelX = sec.worldX - margin;
+    const rx = sec.worldX - margin;
 
-    // Is this text within the visible plane?
-    if (planeRelX < 0 || planeRelX > planeWidth) {
+    if (!showText || rx < 0 || rx > currentW) {
       el.style.opacity = 0;
+      el.textContent = '';
       return;
     }
 
-    el.style.left = planeRelX + 'px';
-
-    const baseOpacity = textOpacity(sec.worldX, sec.side, margin);
-    const { text, fadeAlpha } = updateTypewriter(state, dt);
-    el.textContent = text;
-    el.style.opacity = baseOpacity * fadeAlpha;
+    el.style.left = rx + 'px';
+    const baseOp    = textOpacity(sec.worldX, sec.side);
+    const fadeAlpha = stepTypewriter(state, dt);
+    el.textContent  = state.displayText;
+    el.style.opacity = baseOp * fadeAlpha;
   });
 
-  // ── UPDATE MARKS ───────────────────────────────────────────────────────────
+  // ── Marks ─────────────────────────────────────────────────────────────────
   markEls.forEach(el => {
-    const wx = parseFloat(el.dataset.worldX);
-    const relX = wx - margin;
-    if (relX < 0 || relX > planeWidth) {
+    const wx = parseFloat(el.dataset.wx);
+    const rx = wx - margin;
+    if (!showText || rx < 0 || rx > currentW) {
       el.style.display = 'none';
     } else {
       el.style.display = '';
-      el.style.left = relX + 'px';
+      el.style.left = rx + 'px';
     }
   });
-
-  requestAnimationFrame(frame);
 }
 
-// ─── INIT ─────────────────────────────────────────────────────────────────────
-// Start scrolled to left
-wrapper.scrollLeft = 0;
-
-// Attempt audio (may be blocked until gesture)
-audio.volume = MIN_SOUND;
-audio.play().then(() => { audioUnlocked = true; }).catch(() => {});
-
+// ── INIT ──────────────────────────────────────────────────────────────────────
+world.style.width = FULL_W + 'px';
+initAudio();
 requestAnimationFrame(frame);
 </script>
 </body>
