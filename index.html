@@ -15,7 +15,6 @@
     user-select: none;
   }
 
-  /* overflow:hidden so only drag controls scrolling */
   #scroll-wrapper {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -26,14 +25,12 @@
   }
   #scroll-wrapper.dragging { cursor: grabbing; }
 
-  /* #world IS the plane — white, height doubled to 200px */
   #world {
     position: relative;
     height: 200px;
     background: #fff;
-    overflow: hidden;
     flex-shrink: 0;
-    /* width and margin-left set by JS */
+    overflow: hidden; /* changed to visible in phase 2 */
   }
 
   .symbol {
@@ -44,7 +41,7 @@
     z-index: 10;
   }
   #sym-l { transform: translateY(-50%); }
-  #sym-r { transform: translateY(calc(-50% + 6px)); } /* 6px offset (doubled) */
+  #sym-r { transform: translateY(calc(-50% + 6px)); }
 
   .text-section {
     position: absolute;
@@ -61,7 +58,7 @@
     font-family: 'VT323', monospace;
     font-size: 24px;
     color: #000;
-    opacity: 0.2;
+    opacity: 0.15;
     pointer-events: none;
   }
 
@@ -149,135 +146,123 @@
 
 <div id="clock">00:00:00</div>
 
-<!-- Simple looping audio — plays at full volume on begin -->
-<audio id="audio" loop preload="auto">
-  <source src="webartsong2.mp3" type="audio/mpeg">
-</audio>
+<audio id="audio" loop src="webartsong2.mp3"></audio>
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const FULL_W       = 24000;
-const SYM_W        = 80;   // doubled
-const PLANE_H      = 200;  // doubled
+const SYM_W        = 80;
+const PLANE_H      = 200;
+const EDGE_PAD     = 80;   // breathing room between symbol and plane edge
 const SHRINK_DUR   = 300;
-// Flat edge at x=40 of the 80px rendered SVG (x=20 in viewBox scaled ×2).
-// Touch: currentWidth - 80 + 40 = 40 → currentWidth = 80 = SYM_W
-const MAX_MARGIN   = (FULL_W - SYM_W) / 2;          // 11960
-const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;  // ~199 px/s
+// At meeting: currentW = 2*EDGE_PAD + SYM_W = 240
+const MAX_MARGIN   = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
+const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;           // ~198 px/s
 
-// ── SECTIONS — topPx is vertical position (top edge of text in 200px plane) ──
+// ── SECTIONS — topPx: vertical position (top of text) within 200px plane ─────
 const SECTIONS = [
-  { id:'L1',  worldX: 1400,  side:'left',  topPx: 30,
+  { id:'L1',  worldX: 1400,  side:'left',  topPx: 28,
     lines:[
-      'the wall begins here at the water',
-      'this is the first day',
-      'the body knows only that it is moving',
-      'facing west',
-      'i did not look back',
-      'the sea was already gone',
-      'something started that cannot be undone'
+      'where the wall meets the sea',
+      'the body moving before it was asked',
+      'what it meant to leave',
+      'or whether leaving is the right word',
+      'facing something',
+      'the light in that direction'
     ]
   },
-  { id:'L1h', worldX: 4200,  side:'left',  topPx: 130,
+  { id:'L1h', worldX: 4200,  side:'left',  topPx: 135,
     lines:[
-      'somewhere between the first step and the last',
-      'i stopped counting days',
-      'the body carries what the mind tries to put down',
-      'grief is just love with nowhere to go',
-      'the stones remember every foot that crossed them',
-      'i am not the first to walk here feeling this'
+      'somewhere in the middle of it',
+      'what if this was always going to be',
+      'the stones have held others before this',
+      'what the body carries that the mind refuses',
+      'if distance could be a kind of answer',
+      'or if the question changes along the way'
     ]
   },
-  { id:'L2',  worldX: 7000,  side:'left',  topPx: 50,
+  { id:'L2',  worldX: 7000,  side:'left',  topPx: 52,
     lines:[
-      'this was supposed to be something else',
-      'by the time we started it had already become an ending',
-      'i wonder what your end looks like',
-      'the distance behind is the same as the distance ahead',
-      'still walking',
-      'i keep moving toward what is already gone',
-      'the plan changed but we kept the form',
-      'a wedding that became a farewell without anyone deciding'
+      'what it was supposed to become',
+      'the shape of something that changed before it started',
+      'what your end looks like from here',
+      'whether it matters that neither of us decided',
+      'still moving in the direction of',
+      'the same distance forward as behind',
+      'the ceremony held the form even after'
     ]
   },
-  { id:'L2h', worldX: 9600,  side:'left',  topPx: 145,
+  { id:'L2h', worldX: 9600,  side:'left',  topPx: 148,
     lines:[
-      'i did not expect the silence to have a shape',
-      'to fill the lungs like this',
-      'i have been holding my breath for weeks',
-      'something i cannot name is ending',
-      'it has been ending for a long time',
-      'i grieve the thing we never got to begin',
-      'loss is not one moment',
-      'it is the slow accumulation of days that prove it'
+      'if grief has a shape',
+      'what it fills when it enters',
+      'the weeks of not saying',
+      'something ending that never fully',
+      'how long it has been ending',
+      'what it would have been called if',
+      'whether it counts as a loss if it was also a beginning'
     ]
   },
-  { id:'L3',  worldX: 11200, side:'left',  topPx: 70,
+  { id:'L3',  worldX: 11200, side:'left',  topPx: 68,
     lines:[
-      'the end is legible now',
-      'every step toward',
-      'every step away',
-      'this is how you end something large',
-      'you make it last long enough to deserve what it was',
-      'i am almost there',
-      'i carry the beginning with me still',
-      'it has not been wasted'
+      'legible now in the way an ending gets legible',
+      'every step is both',
+      'how you hold the end of something large',
+      'whether it deserves this length',
+      'it has asked to be made to last',
+      'almost there',
+      'carrying the beginning still'
     ]
   },
-  { id:'R3',  worldX: 12800, side:'right', topPx: 105,
+  { id:'R3',  worldX: 12800, side:'right', topPx: 108,
     lines:[
       'almost',
-      'the ground is hard here',
-      'i have been walking toward this',
-      'it will be enough',
-      'there is nothing left to prepare',
-      'i know the shape of this ending now'
+      'the ground here',
+      'moving toward this for some time now',
+      'what enough means in this context',
+      'nothing left to prepare',
+      'the ending before it happens'
     ]
   },
   { id:'R2h', worldX: 14400, side:'right', topPx: 38,
     lines:[
-      'less and less to carry',
-      'or the same weight felt differently',
-      'almost light',
-      'the wall is just stone now',
-      'it was always just stone',
-      'i wanted it to mean more than it could',
-      'maybe that is what love does',
-      'asks the world to hold what only we can hold'
+      'the weight of it or the absence',
+      'what the wall is without what was put into it',
+      'what love asks the world to hold',
+      'whether stone was ever the right material',
+      'almost through it',
+      'or almost into it'
     ]
   },
-  { id:'R2',  worldX: 17000, side:'right', topPx: 125,
+  { id:'R2',  worldX: 17000, side:'right', topPx: 128,
     lines:[
-      'the same day again',
-      'the wall crumbles here',
-      'no one restored it',
-      'i think of the other end',
-      'what it was supposed to be',
+      'the same day',
+      'what no one restored',
+      'where the other end is in this weather',
+      'what it was going to be',
       'still',
-      'the wind carries nothing from that direction',
-      'or maybe i have stopped listening'
+      'nothing from that direction',
+      'or nothing that reaches'
     ]
   },
-  { id:'R1h', worldX: 19800, side:'right', topPx: 60,
+  { id:'R1h', worldX: 19800, side:'right', topPx: 58,
     lines:[
-      'the wind is different here than it was',
-      'the wall shows its age',
-      'i do not know what i am walking toward',
-      'only that i am walking',
-      'every step is a small farewell',
-      'the desert does not ask what you wanted',
-      'it asks only that you keep moving'
+      'the wind has changed since then',
+      'the wall in all this weather',
+      'what is being walked toward',
+      'only the walking',
+      'each step a kind of',
+      'the desert does not ask'
     ]
   },
-  { id:'R1',  worldX: 22600, side:'right', topPx: 150,
+  { id:'R1',  worldX: 22600, side:'right', topPx: 152,
     lines:[
-      'the wall ends here at the sand',
-      'day one',
-      'facing east',
-      'the wind was cold',
-      'i did not look back',
-      'the desert was already present',
-      'something started that cannot be undone'
+      'where the wall meets sand',
+      'the body moving before it was asked',
+      'what it meant to start',
+      'or whether starting is the word',
+      'facing something',
+      'the cold'
     ]
   },
 ];
@@ -287,10 +272,15 @@ let started    = false;
 let startTime  = null;
 let elapsed    = 0;
 let margin     = 0;
-let phase      = 0;  // 0=shrink 1=hold 2=separate 3=done
+let phase      = 0;  // 0=shrink 1=hold 2=passthrough 3=done
 let phaseT     = 0;
 let lastT      = null;
 let symOpacity = 1;
+
+// Phase 2 pass-through: symbols move with fixed-position after breaking free
+let sym2Active = false;
+let symLScreenX = 0, symLScreenY = 0;
+let symRScreenX = 0, symRScreenY = 0;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const world        = document.getElementById('world');
@@ -304,12 +294,11 @@ const gotoEndBtn   = document.getElementById('goto-end');
 const clockEl      = document.getElementById('clock');
 const audio        = document.getElementById('audio');
 
-// ── SYMBOLS (SVG rendered at 80×80, viewBox 40×40 so it scales ×2) ───────────
+// ── SYMBOLS ───────────────────────────────────────────────────────────────────
 function makeSVG(d) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width',   SYM_W);
-  svg.setAttribute('height',  SYM_W);
+  svg.setAttribute('width', SYM_W); svg.setAttribute('height', SYM_W);
   svg.setAttribute('viewBox', '0 0 40 40');
   const p = document.createElementNS(ns, 'path');
   p.setAttribute('d', d); p.setAttribute('fill', '#000');
@@ -327,14 +316,20 @@ const sectionStates = SECTIONS.map(sec => {
   return { sec, el, lineIdx: 0, twPhase: 'typing', twT: 0, displayText: '' };
 });
 
-// ── MARKS (seeded RNG, 200px tall plane) ──────────────────────────────────────
+// ── MARKS — spaced out, fewer, capped opacity below text ─────────────────────
 const GLYPHS  = ['.', '·', '—', '×', '∙'];
 const markEls = [];
 {
-  let s = 42;
+  let s = 137;
   const rng = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 0xffffffff; };
-  for (let i = 0; i < 160; i++) {
-    const wx = rng() * (FULL_W - 400) + 200;
+  const placed = [];
+  const MIN_SPACING = 260;
+  let attempts = 0;
+  while (placed.length < 65 && attempts < 12000) {
+    attempts++;
+    const wx = rng() * (FULL_W - 600) + 300;
+    if (placed.some(p => Math.abs(p - wx) < MIN_SPACING)) continue;
+    placed.push(wx);
     const yf = rng();
     const g  = GLYPHS[Math.floor(rng() * GLYPHS.length)];
     const el = document.createElement('span');
@@ -348,15 +343,18 @@ const markEls = [];
 }
 
 // ── AUDIO ─────────────────────────────────────────────────────────────────────
+// Called directly on begin click (user gesture) so browser allows playback
 function startAudio() {
+  audio.currentTime = 0;
   audio.volume = 1.0;
-  audio.play().catch(e => console.warn('audio:', e));
+  const p = audio.play();
+  if (p && p.catch) p.catch(() => {});
 }
 
 // ── DRAG SCROLL ───────────────────────────────────────────────────────────────
-let isDragging    = false;
-let dragStartX    = 0;
-let dragScrollAt  = 0;
+let isDragging   = false;
+let dragStartX   = 0;
+let dragScrollAt = 0;
 
 wrapper.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
@@ -366,21 +364,16 @@ wrapper.addEventListener('mousedown', e => {
   wrapper.classList.add('dragging');
   e.preventDefault();
 });
-
 document.addEventListener('mousemove', e => {
   if (!isDragging) return;
   wrapper.scrollLeft = dragScrollAt - (e.clientX - dragStartX);
 });
-
 document.addEventListener('mouseup', () => {
   isDragging = false;
   wrapper.classList.remove('dragging');
 });
-
-// Block trackpad/wheel scroll so drag is the only control
 wrapper.addEventListener('wheel', e => e.preventDefault(), { passive: false });
 
-// Touch drag (trackpad two-finger on mobile / tablet)
 let touchX = 0, touchScroll = 0;
 wrapper.addEventListener('touchstart', e => {
   touchX      = e.touches[0].clientX;
@@ -430,9 +423,7 @@ function updateClock(sec) {
   const m = Math.floor(sec / 60) % 60;
   const h = Math.floor(sec / 3600);
   clockEl.textContent =
-    String(h).padStart(2,'0') + ':' +
-    String(m).padStart(2,'0') + ':' +
-    String(s).padStart(2,'0');
+    String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
 // ── TYPEWRITER ────────────────────────────────────────────────────────────────
@@ -470,6 +461,32 @@ function stepTypewriter(state, dt) {
   return fadeAlpha;
 }
 
+// ── ENTER PASS-THROUGH (phase 1 → 2) ─────────────────────────────────────────
+function enterPassthrough() {
+  // Capture current screen positions, switch to position:fixed so symbols
+  // can travel freely across the viewport independent of the world div
+  const lRect = symLEl.getBoundingClientRect();
+  const rRect = symREl.getBoundingClientRect();
+  symLScreenX = lRect.left;
+  symLScreenY = lRect.top;
+  symRScreenX = rRect.left;
+  symRScreenY = rRect.top;
+
+  symLEl.style.position = 'fixed';
+  symLEl.style.top  = symLScreenY + 'px';
+  symLEl.style.left = symLScreenX + 'px';
+  symLEl.style.transform = 'none';
+  symLEl.style.zIndex = '60';
+
+  symREl.style.position = 'fixed';
+  symREl.style.top  = symRScreenY + 'px';
+  symREl.style.left = symRScreenX + 'px';
+  symREl.style.transform = 'none';
+  symREl.style.zIndex = '60';
+
+  sym2Active = true;
+}
+
 // ── FRAME LOOP ────────────────────────────────────────────────────────────────
 function frame(ts) {
   requestAnimationFrame(frame);
@@ -491,48 +508,64 @@ function frame(ts) {
   else if (phase === 1) {
     margin = MAX_MARGIN;
     phaseT += dt;
-    if (phaseT >= 5.0) { phase = 2; phaseT = 0; }
+    if (phaseT >= 5.0) {
+      phase = 2; phaseT = 0;
+      enterPassthrough();
+    }
   }
 
-  // ── Phase 2: Separation ──────────────────────────────────────────────────
+  // ── Phase 2: Pass-through + white screen ─────────────────────────────────
   else if (phase === 2) {
     phaseT += dt;
-    margin = Math.max(0, margin - DEPART_SPEED * dt);
+
+    // Symbols continue past each other (left goes right, right goes left)
+    symLScreenX += DEPART_SPEED * dt;
+    symRScreenX -= DEPART_SPEED * dt;
+    symLEl.style.left = symLScreenX + 'px';
+    symREl.style.left = symRScreenX + 'px';
+
+    // White screen fades in over 15s
     whiteScreen.style.opacity = clamp(phaseT / 15.0, 0, 1);
+
+    // Symbols fade after white is full
     if (phaseT > 15.0) {
       symOpacity = clamp(1 - (phaseT - 15.0) / 10.0, 0, 1);
+      symLEl.style.opacity = symOpacity;
+      symREl.style.opacity = symOpacity;
       // fade audio
-      audio.volume = clamp(audio.volume - dt * 0.05, 0, 1);
+      audio.volume = Math.max(0, audio.volume - dt * 0.04);
     }
+
     if (phaseT > 26.0) phase = 3;
   }
 
-  // ── Compute current plane width ──────────────────────────────────────────
-  const currentW = Math.max(SYM_W, FULL_W - 2 * margin);
+  // ── Phase 3: Done ─────────────────────────────────────────────────────────
+  // held state — no updates needed
+
+  // ── Compute current plane width ───────────────────────────────────────────
+  const currentW = Math.max(2 * EDGE_PAD + SYM_W, FULL_W - 2 * margin);
   world.style.width = currentW + 'px';
 
-  // Center plane in viewport when it's narrower than the viewport
+  // Center plane when narrower than viewport
   const vw = window.innerWidth;
   world.style.marginLeft = currentW < vw ? ((vw - currentW) / 2) + 'px' : '0px';
 
-  // ── Symbol positions ─────────────────────────────────────────────────────
-  symLEl.style.left    = '0px';
-  symREl.style.left    = (currentW - SYM_W) + 'px';
-  symLEl.style.opacity = symOpacity;
-  symREl.style.opacity = symOpacity;
+  // ── Symbol positions (phases 0 and 1 only — phase 2 uses fixed) ──────────
+  if (!sym2Active) {
+    symLEl.style.left    = EDGE_PAD + 'px';
+    symREl.style.left    = (currentW - SYM_W - EDGE_PAD) + 'px';
+    symLEl.style.opacity = 1;
+    symREl.style.opacity = 1;
+  }
 
   // ── Text ─────────────────────────────────────────────────────────────────
   const showText = phase < 2;
   sectionStates.forEach(state => {
     const { sec, el } = state;
     const rx = sec.worldX - margin;
-
     if (!showText || rx < 0 || rx > currentW) {
-      el.style.opacity = 0;
-      el.textContent = '';
-      return;
+      el.style.opacity = 0; el.textContent = ''; return;
     }
-
     el.style.left = rx + 'px';
     const baseOp    = textOpacity(sec.worldX, sec.side);
     const fadeAlpha = stepTypewriter(state, dt);
