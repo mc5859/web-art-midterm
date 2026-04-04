@@ -30,7 +30,7 @@
     height: 200px;
     background: #fff;
     flex-shrink: 0;
-    overflow: hidden; /* changed to visible in phase 2 */
+    overflow: hidden;
   }
 
   .symbol {
@@ -46,7 +46,7 @@
   .text-section {
     position: absolute;
     font-family: 'VT323', monospace;
-    font-size: 34px;
+    font-size: 26px;
     color: #000;
     white-space: nowrap;
     pointer-events: none;
@@ -79,13 +79,23 @@
     letter-spacing: 0.05em;
   }
 
+  /* Expanding white box — grows from plane position to fill screen */
+  #expand-box {
+    position: fixed;
+    background: #fff;
+    pointer-events: none;
+    z-index: 45;
+    opacity: 0;
+  }
+
+  /* Final white fade overlay */
   #white-screen {
     position: fixed;
     inset: 0;
     background: #fff;
     opacity: 0;
     pointer-events: none;
-    z-index: 50;
+    z-index: 55;
   }
 
   #begin-overlay {
@@ -138,6 +148,7 @@
   </div>
 </div>
 
+<div id="expand-box"></div>
 <div id="white-screen"></div>
 
 <div id="begin-overlay">
@@ -150,119 +161,84 @@
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const FULL_W       = 24000;
-const SYM_W        = 80;
-const PLANE_H      = 200;
-const EDGE_PAD     = 80;   // breathing room between symbol and plane edge
-const SHRINK_DUR   = 300;
-// At meeting: currentW = 2*EDGE_PAD + SYM_W = 240
-const MAX_MARGIN   = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
-const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;           // ~198 px/s
+const FULL_W         = 24000;
+const SYM_W          = 80;
+const PLANE_H        = 200;
+const EDGE_PAD       = 80;
+const SHRINK_DUR     = 300;
+const MAX_MARGIN     = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
+const APPROACH_SPEED = MAX_MARGIN / SHRINK_DUR;                 // ~39.6 px/s (avg)
+const DEPART_SPEED   = APPROACH_SPEED;                          // same speed for departure
+const HOLD_DUR_PHASE = 12.5;   // 2.5× original 5s
+const EXPAND_DUR     = 8.0;    // seconds for box to expand to fullscreen
+const FADE_DELAY     = 2.5;    // seconds after box full before white fade starts
+const FADE_DUR_END   = 4.0;    // white fade duration
 
-// ── SECTIONS — topPx: vertical position (top of text) within 200px plane ─────
+// ── TEXT SECTIONS ─────────────────────────────────────────────────────────────
+// Outer sections (close to symbols at start) = personal voice
+// Inner sections (farther from symbols)      = general/poetic
 const SECTIONS = [
-  { id:'L1',  worldX: 1400,  side:'left',  topPx: 28,
+  // ── Near left symbol — personal ──
+  { id:'L1',  worldX: 1400,  side:'left',  topPx: 40,
     lines:[
-      'where the wall meets the sea',
-      'the body moving before it was asked',
-      'what it meant to leave',
-      'or whether leaving is the right word',
-      'facing something',
-      'the light in that direction'
+      'i wonder what your end looks like from here',
+      'whether you feel the same cold'
     ]
   },
-  { id:'L1h', worldX: 4200,  side:'left',  topPx: 135,
+  { id:'L1h', worldX: 4200,  side:'left',  topPx: 128,
     lines:[
-      'somewhere in the middle of it',
-      'what if this was always going to be',
-      'the stones have held others before this',
-      'what the body carries that the mind refuses',
-      'if distance could be a kind of answer',
-      'or if the question changes along the way'
+      'i have been thinking of you without stopping',
+      'if you are carrying what i left behind'
     ]
   },
-  { id:'L2',  worldX: 7000,  side:'left',  topPx: 52,
+  // ── Farther from symbols — general/poetic ──
+  { id:'L2',  worldX: 7000,  side:'left',  topPx: 60,
     lines:[
-      'what it was supposed to become',
-      'the shape of something that changed before it started',
-      'what your end looks like from here',
-      'whether it matters that neither of us decided',
-      'still moving in the direction of',
-      'the same distance forward as behind',
-      'the ceremony held the form even after'
+      'a ceremony held its form even after',
+      'what the body carries when the mind stops'
     ]
   },
-  { id:'L2h', worldX: 9600,  side:'left',  topPx: 148,
+  { id:'L2h', worldX: 9600,  side:'left',  topPx: 145,
     lines:[
-      'if grief has a shape',
-      'what it fills when it enters',
-      'the weeks of not saying',
-      'something ending that never fully',
-      'how long it has been ending',
-      'what it would have been called if',
-      'whether it counts as a loss if it was also a beginning'
+      'the shape of a loss before it has a name',
+      'something ending that never fully'
     ]
   },
-  { id:'L3',  worldX: 11200, side:'left',  topPx: 68,
+  { id:'L3',  worldX: 11200, side:'left',  topPx: 72,
     lines:[
-      'legible now in the way an ending gets legible',
-      'every step is both',
-      'how you hold the end of something large',
-      'whether it deserves this length',
-      'it has asked to be made to last',
-      'almost there',
-      'carrying the beginning still'
+      'every step toward',
+      'every step away'
     ]
   },
-  { id:'R3',  worldX: 12800, side:'right', topPx: 108,
+  { id:'R3',  worldX: 12800, side:'right', topPx: 110,
     lines:[
       'almost',
-      'the ground here',
-      'moving toward this for some time now',
-      'what enough means in this context',
-      'nothing left to prepare',
-      'the ending before it happens'
+      'the ground changes here'
     ]
   },
-  { id:'R2h', worldX: 14400, side:'right', topPx: 38,
+  { id:'R2h', worldX: 14400, side:'right', topPx: 42,
     lines:[
-      'the weight of it or the absence',
-      'what the wall is without what was put into it',
-      'what love asks the world to hold',
-      'whether stone was ever the right material',
-      'almost through it',
-      'or almost into it'
+      'what stone holds that water cannot',
+      'what was always going to erode'
     ]
   },
-  { id:'R2',  worldX: 17000, side:'right', topPx: 128,
+  { id:'R2',  worldX: 17000, side:'right', topPx: 132,
     lines:[
-      'the same day',
-      'what no one restored',
-      'where the other end is in this weather',
-      'what it was going to be',
-      'still',
-      'nothing from that direction',
-      'or nothing that reaches'
+      'the same day again',
+      'nothing from that direction'
     ]
   },
-  { id:'R1h', worldX: 19800, side:'right', topPx: 58,
+  // ── Near right symbol — personal ──
+  { id:'R1h', worldX: 19800, side:'right', topPx: 55,
     lines:[
-      'the wind has changed since then',
-      'the wall in all this weather',
-      'what is being walked toward',
-      'only the walking',
-      'each step a kind of',
-      'the desert does not ask'
+      'i keep waiting to feel the distance close',
+      'you must be tired too'
     ]
   },
-  { id:'R1',  worldX: 22600, side:'right', topPx: 152,
+  { id:'R1',  worldX: 22600, side:'right', topPx: 148,
     lines:[
-      'where the wall meets sand',
-      'the body moving before it was asked',
-      'what it meant to start',
-      'or whether starting is the word',
-      'facing something',
-      'the cold'
+      'i have been watching your direction all along',
+      'what we are moving toward or away from'
     ]
   },
 ];
@@ -275,18 +251,21 @@ let margin     = 0;
 let phase      = 0;  // 0=shrink 1=hold 2=passthrough 3=done
 let phaseT     = 0;
 let lastT      = null;
-let symOpacity = 1;
 
-// Phase 2 pass-through: symbols move with fixed-position after breaking free
+// Phase 2: symbols use fixed-position for pass-through
 let sym2Active = false;
 let symLScreenX = 0, symLScreenY = 0;
 let symRScreenX = 0, symRScreenY = 0;
+
+// Phase 2: expand box start rect
+let expandStartLeft = 0, expandStartTop = 0, expandStartW = 0, expandStartH = 0;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const world        = document.getElementById('world');
 const wrapper      = document.getElementById('scroll-wrapper');
 const symLEl       = document.getElementById('sym-l');
 const symREl       = document.getElementById('sym-r');
+const expandBox    = document.getElementById('expand-box');
 const whiteScreen  = document.getElementById('white-screen');
 const beginOverlay = document.getElementById('begin-overlay');
 const beginBtn     = document.getElementById('begin-btn');
@@ -316,7 +295,7 @@ const sectionStates = SECTIONS.map(sec => {
   return { sec, el, lineIdx: 0, twPhase: 'typing', twT: 0, displayText: '' };
 });
 
-// ── MARKS — spaced out, fewer, capped opacity below text ─────────────────────
+// ── MARKS — spaced, subtle ────────────────────────────────────────────────────
 const GLYPHS  = ['.', '·', '—', '×', '∙'];
 const markEls = [];
 {
@@ -343,7 +322,6 @@ const markEls = [];
 }
 
 // ── AUDIO ─────────────────────────────────────────────────────────────────────
-// Called directly on begin click (user gesture) so browser allows playback
 function startAudio() {
   audio.currentTime = 0;
   audio.volume = 1.0;
@@ -463,8 +441,6 @@ function stepTypewriter(state, dt) {
 
 // ── ENTER PASS-THROUGH (phase 1 → 2) ─────────────────────────────────────────
 function enterPassthrough() {
-  // Capture current screen positions, switch to position:fixed so symbols
-  // can travel freely across the viewport independent of the world div
   const lRect = symLEl.getBoundingClientRect();
   const rRect = symREl.getBoundingClientRect();
   symLScreenX = lRect.left;
@@ -484,6 +460,18 @@ function enterPassthrough() {
   symREl.style.transform = 'none';
   symREl.style.zIndex = '60';
 
+  // Capture expand box start — from world's current screen rect
+  const worldRect = world.getBoundingClientRect();
+  expandStartLeft = worldRect.left;
+  expandStartTop  = worldRect.top;
+  expandStartW    = worldRect.width;
+  expandStartH    = worldRect.height;
+  expandBox.style.left   = expandStartLeft + 'px';
+  expandBox.style.top    = expandStartTop  + 'px';
+  expandBox.style.width  = expandStartW    + 'px';
+  expandBox.style.height = expandStartH    + 'px';
+  expandBox.style.opacity = '1';
+
   sym2Active = true;
 }
 
@@ -498,49 +486,57 @@ function frame(ts) {
   elapsed = (ts - startTime) / 1000;
   updateClock(elapsed);
 
-  // ── Phase 0: Shrink ──────────────────────────────────────────────────────
+  // ── Phase 0: Shrink (ease-out cubic — slows as symbols approach) ──────────
   if (phase === 0) {
-    margin = clamp((elapsed / SHRINK_DUR) * MAX_MARGIN, 0, MAX_MARGIN);
-    if (margin >= MAX_MARGIN) { phase = 1; phaseT = 0; }
+    const t = clamp(elapsed / SHRINK_DUR, 0, 1);
+    const eased = 1 - Math.pow(1 - t, 3);   // ease-out cubic
+    margin = eased * MAX_MARGIN;
+    if (t >= 1) { phase = 1; phaseT = 0; }
   }
 
-  // ── Phase 1: Hold (5s) ───────────────────────────────────────────────────
+  // ── Phase 1: Hold ────────────────────────────────────────────────────────
   else if (phase === 1) {
     margin = MAX_MARGIN;
     phaseT += dt;
-    if (phaseT >= 5.0) {
+    if (phaseT >= HOLD_DUR_PHASE) {
       phase = 2; phaseT = 0;
       enterPassthrough();
     }
   }
 
-  // ── Phase 2: Pass-through + white screen ─────────────────────────────────
+  // ── Phase 2: Pass-through + expanding box + white fade ───────────────────
   else if (phase === 2) {
     phaseT += dt;
 
-    // Symbols continue past each other (left goes right, right goes left)
+    // Symbols continue past each other at original approach speed
     symLScreenX += DEPART_SPEED * dt;
     symRScreenX -= DEPART_SPEED * dt;
     symLEl.style.left = symLScreenX + 'px';
     symREl.style.left = symRScreenX + 'px';
 
-    // White screen fades in over 15s
-    whiteScreen.style.opacity = clamp(phaseT / 15.0, 0, 1);
+    // Expand white box from plane rect to full viewport (smoothstep ease)
+    const expandT = clamp(phaseT / EXPAND_DUR, 0, 1);
+    const easeE = expandT * expandT * (3 - 2 * expandT);
+    const vw = window.innerWidth, vh = window.innerHeight;
+    expandBox.style.left   = lerp(expandStartLeft, 0, easeE) + 'px';
+    expandBox.style.top    = lerp(expandStartTop,  0, easeE) + 'px';
+    expandBox.style.width  = lerp(expandStartW,   vw, easeE) + 'px';
+    expandBox.style.height = lerp(expandStartH,   vh, easeE) + 'px';
 
-    // Symbols fade after white is full
-    if (phaseT > 15.0) {
-      symOpacity = clamp(1 - (phaseT - 15.0) / 10.0, 0, 1);
-      symLEl.style.opacity = symOpacity;
-      symREl.style.opacity = symOpacity;
-      // fade audio
-      audio.volume = Math.max(0, audio.volume - dt * 0.04);
+    // White screen fades in after box is fully expanded + delay
+    const fadeStart = EXPAND_DUR + FADE_DELAY;
+    if (phaseT > fadeStart) {
+      whiteScreen.style.opacity = clamp((phaseT - fadeStart) / FADE_DUR_END, 0, 1);
     }
 
-    if (phaseT > 26.0) phase = 3;
+    // Fade audio gently
+    audio.volume = Math.max(0, audio.volume - dt * 0.04);
+
+    if (phaseT > fadeStart + FADE_DUR_END + 1.0) phase = 3;
   }
 
-  // ── Phase 3: Done ─────────────────────────────────────────────────────────
-  // held state — no updates needed
+  // ── Phase 3: Done — held white state ────────────────────────────────────
+  // no updates needed
 
   // ── Compute current plane width ───────────────────────────────────────────
   const currentW = Math.max(2 * EDGE_PAD + SYM_W, FULL_W - 2 * margin);
@@ -550,7 +546,7 @@ function frame(ts) {
   const vw = window.innerWidth;
   world.style.marginLeft = currentW < vw ? ((vw - currentW) / 2) + 'px' : '0px';
 
-  // ── Symbol positions (phases 0 and 1 only — phase 2 uses fixed) ──────────
+  // ── Symbol positions (phases 0 and 1 only) ───────────────────────────────
   if (!sym2Active) {
     symLEl.style.left    = EDGE_PAD + 'px';
     symREl.style.left    = (currentW - SYM_W - EDGE_PAD) + 'px';
