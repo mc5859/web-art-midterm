@@ -12,45 +12,44 @@
     width: 100%; height: 100%;
     overflow: hidden;
     background: #111;
+    user-select: none;
   }
 
+  /* overflow:hidden so only drag controls scrolling */
   #scroll-wrapper {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    overflow-x: scroll;
-    overflow-y: hidden;
+    overflow: hidden;
     display: flex;
     align-items: center;
+    cursor: grab;
   }
-  #scroll-wrapper::-webkit-scrollbar { display: none; }
-  #scroll-wrapper { scrollbar-width: none; }
+  #scroll-wrapper.dragging { cursor: grabbing; }
 
-  /* #world IS the plane — white, shrinks in width each frame */
+  /* #world IS the plane — white, height doubled to 200px */
   #world {
     position: relative;
-    height: 100px;
+    height: 200px;
     background: #fff;
     overflow: hidden;
     flex-shrink: 0;
-    /* width set by JS */
+    /* width and margin-left set by JS */
   }
 
   .symbol {
     position: absolute;
     top: 50%;
-    width: 40px; height: 40px;
+    width: 80px; height: 80px;
     pointer-events: none;
     z-index: 10;
   }
   #sym-l { transform: translateY(-50%); }
-  #sym-r { transform: translateY(calc(-50% + 3px)); } /* permanent 3px offset */
+  #sym-r { transform: translateY(calc(-50% + 6px)); } /* 6px offset (doubled) */
 
   .text-section {
     position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
     font-family: 'VT323', monospace;
-    font-size: 17px;
+    font-size: 34px;
     color: #000;
     white-space: nowrap;
     pointer-events: none;
@@ -60,30 +59,29 @@
   .mark {
     position: absolute;
     font-family: 'VT323', monospace;
-    font-size: 12px;
+    font-size: 24px;
     color: #000;
-    opacity: 0.08;
+    opacity: 0.2;
     pointer-events: none;
   }
 
   #goto-end {
     position: absolute;
-    bottom: 6px;
+    bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
     background: #c00;
     color: #fff;
     border: none;
-    padding: 4px 14px;
+    padding: 5px 18px;
     font-family: monospace;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: bold;
     cursor: pointer;
     z-index: 50;
     letter-spacing: 0.05em;
   }
 
-  /* White screen overlay — expands during separation */
   #white-screen {
     position: fixed;
     inset: 0;
@@ -93,7 +91,6 @@
     z-index: 50;
   }
 
-  /* Begin overlay */
   #begin-overlay {
     position: fixed;
     inset: 0;
@@ -106,12 +103,12 @@
   }
 
   #begin-btn {
-    width: 80px; height: 80px;
+    width: 90px; height: 90px;
     background: transparent;
     border: 1px solid rgba(255,255,255,0.45);
     color: rgba(255,255,255,0.6);
     font-family: 'VT323', monospace;
-    font-size: 19px;
+    font-size: 21px;
     letter-spacing: 0.12em;
     cursor: pointer;
     transition: border-color 0.25s, color 0.25s;
@@ -152,67 +149,147 @@
 
 <div id="clock">00:00:00</div>
 
+<!-- Simple looping audio — plays at full volume on begin -->
+<audio id="audio" loop preload="auto">
+  <source src="webartsong2.mp3" type="audio/mpeg">
+</audio>
+
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const FULL_W       = 24000;
-const SYM_W        = 40;
-const PLANE_H      = 100;
+const SYM_W        = 80;   // doubled
+const PLANE_H      = 200;  // doubled
 const SHRINK_DUR   = 300;
-// Flat edge of each SVG is at x=20 of the 40px viewBox.
-// For flat edges to touch: minWidth = SYM_W (one symbol width = 40px),
-// because right sym is at left: currentWidth-40 → flat at (currentWidth-40+20).
-// Touch when currentWidth-40+20 = 20 → currentWidth = 40 = SYM_W.
-const MAX_MARGIN   = (FULL_W - SYM_W) / 2;          // 11980
-const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;  // 5× faster separation
-const CROSSFADE    = 3;   // seconds
+// Flat edge at x=40 of the 80px rendered SVG (x=20 in viewBox scaled ×2).
+// Touch: currentWidth - 80 + 40 = 40 → currentWidth = 80 = SYM_W
+const MAX_MARGIN   = (FULL_W - SYM_W) / 2;          // 11960
+const DEPART_SPEED = (MAX_MARGIN / SHRINK_DUR) * 5;  // ~199 px/s
 
-// ── SECTIONS ──────────────────────────────────────────────────────────────────
+// ── SECTIONS — topPx is vertical position (top edge of text in 200px plane) ──
 const SECTIONS = [
-  { id:'L1',  worldX: 1400,  side:'left',
-    lines:['the wall begins here at the water','this is the first day',
-           'the body knows only that it is moving','facing west'] },
-  { id:'L1h', worldX: 4200,  side:'left',
-    lines:['somewhere between the first step and the last','i stopped counting days',
-           'the body carries what the mind tries to put down',
-           'grief is just love with nowhere to go'] },
-  { id:'L2',  worldX: 7000,  side:'left',
-    lines:['this was supposed to be something else',
-           'by the time we started it had already become an ending',
-           'i wonder what your end looks like',
-           'the distance behind is the same as the distance ahead','still walking'] },
-  { id:'L2h', worldX: 9600,  side:'left',
-    lines:['i did not expect the silence to have a shape','to fill the lungs like this',
-           'i have been holding my breath for weeks',
-           'something i cannot name is ending','it has been ending for a long time'] },
-  { id:'L3',  worldX: 11200, side:'left',
-    lines:['the end is legible now','every step toward','every step away',
-           'this is how you end something large',
-           'you make it last long enough to deserve what it was','i am almost there'] },
-  { id:'R3',  worldX: 12800, side:'right',
-    lines:['almost','the ground is hard here',
-           'i have been walking toward this','it will be enough'] },
-  { id:'R2h', worldX: 14400, side:'right',
-    lines:['less and less to carry','or the same weight felt differently',
-           'almost light','the wall is just stone now','it was always just stone'] },
-  { id:'R2',  worldX: 17000, side:'right',
-    lines:['the same day again','the wall crumbles here','no one restored it',
-           'i think of the other end','what it was supposed to be','still'] },
-  { id:'R1h', worldX: 19800, side:'right',
-    lines:['the wind is different here than it was','the wall shows its age',
-           'i do not know what i am walking toward','only that i am walking',
-           'every step is a small farewell'] },
-  { id:'R1',  worldX: 22600, side:'right',
-    lines:['the wall ends here at the sand','day one','facing east','the wind was cold'] },
+  { id:'L1',  worldX: 1400,  side:'left',  topPx: 30,
+    lines:[
+      'the wall begins here at the water',
+      'this is the first day',
+      'the body knows only that it is moving',
+      'facing west',
+      'i did not look back',
+      'the sea was already gone',
+      'something started that cannot be undone'
+    ]
+  },
+  { id:'L1h', worldX: 4200,  side:'left',  topPx: 130,
+    lines:[
+      'somewhere between the first step and the last',
+      'i stopped counting days',
+      'the body carries what the mind tries to put down',
+      'grief is just love with nowhere to go',
+      'the stones remember every foot that crossed them',
+      'i am not the first to walk here feeling this'
+    ]
+  },
+  { id:'L2',  worldX: 7000,  side:'left',  topPx: 50,
+    lines:[
+      'this was supposed to be something else',
+      'by the time we started it had already become an ending',
+      'i wonder what your end looks like',
+      'the distance behind is the same as the distance ahead',
+      'still walking',
+      'i keep moving toward what is already gone',
+      'the plan changed but we kept the form',
+      'a wedding that became a farewell without anyone deciding'
+    ]
+  },
+  { id:'L2h', worldX: 9600,  side:'left',  topPx: 145,
+    lines:[
+      'i did not expect the silence to have a shape',
+      'to fill the lungs like this',
+      'i have been holding my breath for weeks',
+      'something i cannot name is ending',
+      'it has been ending for a long time',
+      'i grieve the thing we never got to begin',
+      'loss is not one moment',
+      'it is the slow accumulation of days that prove it'
+    ]
+  },
+  { id:'L3',  worldX: 11200, side:'left',  topPx: 70,
+    lines:[
+      'the end is legible now',
+      'every step toward',
+      'every step away',
+      'this is how you end something large',
+      'you make it last long enough to deserve what it was',
+      'i am almost there',
+      'i carry the beginning with me still',
+      'it has not been wasted'
+    ]
+  },
+  { id:'R3',  worldX: 12800, side:'right', topPx: 105,
+    lines:[
+      'almost',
+      'the ground is hard here',
+      'i have been walking toward this',
+      'it will be enough',
+      'there is nothing left to prepare',
+      'i know the shape of this ending now'
+    ]
+  },
+  { id:'R2h', worldX: 14400, side:'right', topPx: 38,
+    lines:[
+      'less and less to carry',
+      'or the same weight felt differently',
+      'almost light',
+      'the wall is just stone now',
+      'it was always just stone',
+      'i wanted it to mean more than it could',
+      'maybe that is what love does',
+      'asks the world to hold what only we can hold'
+    ]
+  },
+  { id:'R2',  worldX: 17000, side:'right', topPx: 125,
+    lines:[
+      'the same day again',
+      'the wall crumbles here',
+      'no one restored it',
+      'i think of the other end',
+      'what it was supposed to be',
+      'still',
+      'the wind carries nothing from that direction',
+      'or maybe i have stopped listening'
+    ]
+  },
+  { id:'R1h', worldX: 19800, side:'right', topPx: 60,
+    lines:[
+      'the wind is different here than it was',
+      'the wall shows its age',
+      'i do not know what i am walking toward',
+      'only that i am walking',
+      'every step is a small farewell',
+      'the desert does not ask what you wanted',
+      'it asks only that you keep moving'
+    ]
+  },
+  { id:'R1',  worldX: 22600, side:'right', topPx: 150,
+    lines:[
+      'the wall ends here at the sand',
+      'day one',
+      'facing east',
+      'the wind was cold',
+      'i did not look back',
+      'the desert was already present',
+      'something started that cannot be undone'
+    ]
+  },
 ];
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
-let started   = false;
-let startTime = null;
-let elapsed   = 0;
-let margin    = 0;
-let phase     = 0;  // 0=shrink 1=hold 2=separate 3=done
-let phaseT    = 0;
-let lastT     = null;
+let started    = false;
+let startTime  = null;
+let elapsed    = 0;
+let margin     = 0;
+let phase      = 0;  // 0=shrink 1=hold 2=separate 3=done
+let phaseT     = 0;
+let lastT      = null;
 let symOpacity = 1;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -225,32 +302,33 @@ const beginOverlay = document.getElementById('begin-overlay');
 const beginBtn     = document.getElementById('begin-btn');
 const gotoEndBtn   = document.getElementById('goto-end');
 const clockEl      = document.getElementById('clock');
+const audio        = document.getElementById('audio');
 
-// ── SYMBOLS ───────────────────────────────────────────────────────────────────
+// ── SYMBOLS (SVG rendered at 80×80, viewBox 40×40 so it scales ×2) ───────────
 function makeSVG(d) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width', 40); svg.setAttribute('height', 40);
+  svg.setAttribute('width',   SYM_W);
+  svg.setAttribute('height',  SYM_W);
   svg.setAttribute('viewBox', '0 0 40 40');
   const p = document.createElementNS(ns, 'path');
   p.setAttribute('d', d); p.setAttribute('fill', '#000');
   svg.appendChild(p); return svg;
 }
-// Left: C-shape, flat on right facing center
-symLEl.appendChild(makeSVG('M20,4 A16,16 0 0,0 20,36 Z'));
-// Right: D-shape, flat on left facing center
-symREl.appendChild(makeSVG('M20,4 A16,16 0 0,1 20,36 Z'));
+symLEl.appendChild(makeSVG('M20,4 A16,16 0 0,0 20,36 Z'));  // C: flat right
+symREl.appendChild(makeSVG('M20,4 A16,16 0 0,1 20,36 Z'));  // D: flat left
 
 // ── TEXT ELEMENTS ─────────────────────────────────────────────────────────────
 const sectionStates = SECTIONS.map(sec => {
   const el = document.createElement('div');
   el.className = 'text-section';
+  el.style.top = sec.topPx + 'px';
   world.appendChild(el);
   return { sec, el, lineIdx: 0, twPhase: 'typing', twT: 0, displayText: '' };
 });
 
-// ── MARKS (seeded RNG) ────────────────────────────────────────────────────────
-const GLYPHS = ['.','·','—','×','∙'];
+// ── MARKS (seeded RNG, 200px tall plane) ──────────────────────────────────────
+const GLYPHS  = ['.', '·', '—', '×', '∙'];
 const markEls = [];
 {
   let s = 42;
@@ -269,92 +347,74 @@ const markEls = [];
   }
 }
 
-// ── AUDIO (Web Audio API) ─────────────────────────────────────────────────────
-let audioCtx    = null;
-let masterGain  = null;
-let audioBuffer = null;
-let audioReady  = false;
-let audioStarted = false;
-
-async function initAudio() {
-  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
-  masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0;
-  masterGain.connect(audioCtx.destination);
-  try {
-    const res = await fetch('webartsong2.mp3');
-    const ab  = await res.arrayBuffer();
-    audioBuffer = await audioCtx.decodeAudioData(ab);
-    audioReady = true;
-  } catch(e) { console.warn('audio load failed', e); }
-}
-
-function scheduleLoop(startWhen, offset) {
-  if (!audioBuffer) return;
-  const dur    = audioBuffer.duration;
-  const playLen = dur - offset;
-
-  const sg  = audioCtx.createGain();
-  sg.connect(masterGain);
-  const src = audioCtx.createBufferSource();
-  src.buffer = audioBuffer;
-  src.connect(sg);
-
-  // fade in
-  sg.gain.setValueAtTime(0, startWhen);
-  sg.gain.linearRampToValueAtTime(1, startWhen + CROSSFADE);
-  // fade out near end
-  const foAt = Math.max(startWhen + CROSSFADE + 0.01, startWhen + playLen - CROSSFADE);
-  sg.gain.setValueAtTime(1, foAt);
-  sg.gain.linearRampToValueAtTime(0, startWhen + playLen);
-
-  src.start(startWhen, offset);
-  src.stop(startWhen + playLen + 0.1);
-
-  const nextWhen = startWhen + playLen - CROSSFADE;
-  const delay = Math.max(0, (nextWhen - audioCtx.currentTime - 1) * 1000);
-  setTimeout(() => scheduleLoop(nextWhen, 0), delay);
-}
-
+// ── AUDIO ─────────────────────────────────────────────────────────────────────
 function startAudio() {
-  if (audioStarted || !audioReady) return;
-  audioStarted = true;
-  scheduleLoop(audioCtx.currentTime, 0);
+  audio.volume = 1.0;
+  audio.play().catch(e => console.warn('audio:', e));
 }
 
-function setMasterVol(v) {
-  if (masterGain) masterGain.gain.value = Math.max(0, Math.min(1, v));
-}
+// ── DRAG SCROLL ───────────────────────────────────────────────────────────────
+let isDragging    = false;
+let dragStartX    = 0;
+let dragScrollAt  = 0;
+
+wrapper.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  isDragging   = true;
+  dragStartX   = e.clientX;
+  dragScrollAt = wrapper.scrollLeft;
+  wrapper.classList.add('dragging');
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  wrapper.scrollLeft = dragScrollAt - (e.clientX - dragStartX);
+});
+
+document.addEventListener('mouseup', () => {
+  isDragging = false;
+  wrapper.classList.remove('dragging');
+});
+
+// Block trackpad/wheel scroll so drag is the only control
+wrapper.addEventListener('wheel', e => e.preventDefault(), { passive: false });
+
+// Touch drag (trackpad two-finger on mobile / tablet)
+let touchX = 0, touchScroll = 0;
+wrapper.addEventListener('touchstart', e => {
+  touchX      = e.touches[0].clientX;
+  touchScroll = wrapper.scrollLeft;
+}, { passive: true });
+wrapper.addEventListener('touchmove', e => {
+  wrapper.scrollLeft = touchScroll - (e.touches[0].clientX - touchX);
+}, { passive: true });
 
 // ── BEGIN ─────────────────────────────────────────────────────────────────────
-beginBtn.addEventListener('click', async () => {
+beginBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
-  await audioCtx.resume();
   startAudio();
   beginOverlay.style.opacity = '0';
   setTimeout(() => { beginOverlay.style.display = 'none'; }, 1500);
-  // center scroll
   wrapper.scrollLeft = (FULL_W - window.innerWidth) / 2;
 });
 
 // GO TO END (debug)
-gotoEndBtn.addEventListener('click', async () => {
+gotoEndBtn.addEventListener('click', () => {
   if (!started) {
     started = true;
     beginOverlay.style.display = 'none';
+    startAudio();
   }
-  if (audioCtx) await audioCtx.resume();
-  startAudio();
   margin = MAX_MARGIN;
   phase  = 1;
   phaseT = 0;
-  setMasterVol(1.0);
 });
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
-const lerp  = (a,b,t)   => a + (b-a)*t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp  = (a, b, t)   => a + (b - a) * t;
 
 function textOpacity(worldX, side) {
   const dist = side === 'left'
@@ -370,11 +430,13 @@ function updateClock(sec) {
   const m = Math.floor(sec / 60) % 60;
   const h = Math.floor(sec / 3600);
   clockEl.textContent =
-    String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+    String(h).padStart(2,'0') + ':' +
+    String(m).padStart(2,'0') + ':' +
+    String(s).padStart(2,'0');
 }
 
 // ── TYPEWRITER ────────────────────────────────────────────────────────────────
-const TYPE_SPD  = 0.04; // sec/char
+const TYPE_SPD  = 0.04;
 const HOLD_DUR  = 8;
 const FADE_DUR  = 6;
 const PAUSE_DUR = 2;
@@ -411,7 +473,6 @@ function stepTypewriter(state, dt) {
 // ── FRAME LOOP ────────────────────────────────────────────────────────────────
 function frame(ts) {
   requestAnimationFrame(frame);
-
   if (!started) return;
 
   if (!lastT) { lastT = ts; startTime = ts; }
@@ -424,28 +485,12 @@ function frame(ts) {
   if (phase === 0) {
     margin = clamp((elapsed / SHRINK_DUR) * MAX_MARGIN, 0, MAX_MARGIN);
     if (margin >= MAX_MARGIN) { phase = 1; phaseT = 0; }
-
-    // Audio volume: 0→0.2 over first 15s, then proximity-based
-    if (audioStarted) {
-      const currentW = FULL_W - 2 * margin;
-      const symDist  = currentW - SYM_W * 2;
-      const maxDist  = FULL_W - SYM_W * 2;
-      const proximity = clamp(1 - symDist / maxDist, 0, 1);
-      let vol;
-      if (elapsed < 15) {
-        vol = (elapsed / 15) * 0.2;
-      } else {
-        vol = lerp(0.2, 1.0, Math.pow(proximity, 1.2));
-      }
-      setMasterVol(vol);
-    }
   }
 
   // ── Phase 1: Hold (5s) ───────────────────────────────────────────────────
   else if (phase === 1) {
     margin = MAX_MARGIN;
     phaseT += dt;
-    if (audioStarted) setMasterVol(1.0);
     if (phaseT >= 5.0) { phase = 2; phaseT = 0; }
   }
 
@@ -453,32 +498,26 @@ function frame(ts) {
   else if (phase === 2) {
     phaseT += dt;
     margin = Math.max(0, margin - DEPART_SPEED * dt);
-
-    // white screen fades in over 15s
-    const ws = clamp(phaseT / 15.0, 0, 1);
-    whiteScreen.style.opacity = ws;
-
-    // symbol fade (after white is full)
+    whiteScreen.style.opacity = clamp(phaseT / 15.0, 0, 1);
     if (phaseT > 15.0) {
       symOpacity = clamp(1 - (phaseT - 15.0) / 10.0, 0, 1);
+      // fade audio
+      audio.volume = clamp(audio.volume - dt * 0.05, 0, 1);
     }
-
-    // audio fade
-    if (audioStarted) setMasterVol(clamp(1 - phaseT / 15.0, 0, 1));
-
-    if (phaseT > 26.0) { phase = 3; }
+    if (phaseT > 26.0) phase = 3;
   }
-
-  // ── Phase 3: Done ────────────────────────────────────────────────────────
-  // (held state)
 
   // ── Compute current plane width ──────────────────────────────────────────
   const currentW = Math.max(SYM_W, FULL_W - 2 * margin);
   world.style.width = currentW + 'px';
 
+  // Center plane in viewport when it's narrower than the viewport
+  const vw = window.innerWidth;
+  world.style.marginLeft = currentW < vw ? ((vw - currentW) / 2) + 'px' : '0px';
+
   // ── Symbol positions ─────────────────────────────────────────────────────
-  symLEl.style.left = '0px';
-  symREl.style.left = (currentW - SYM_W) + 'px';
+  symLEl.style.left    = '0px';
+  symREl.style.left    = (currentW - SYM_W) + 'px';
   symLEl.style.opacity = symOpacity;
   symREl.style.opacity = symOpacity;
 
@@ -501,7 +540,7 @@ function frame(ts) {
     el.style.opacity = baseOp * fadeAlpha;
   });
 
-  // ── Marks ─────────────────────────────────────────────────────────────────
+  // ── Marks ────────────────────────────────────────────────────────────────
   markEls.forEach(el => {
     const wx = parseFloat(el.dataset.wx);
     const rx = wx - margin;
@@ -514,9 +553,8 @@ function frame(ts) {
   });
 }
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
+// ── INIT ─────────────────────────────────────────────────────────────────────
 world.style.width = FULL_W + 'px';
-initAudio();
 requestAnimationFrame(frame);
 </script>
 </body>
