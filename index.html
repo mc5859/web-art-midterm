@@ -63,23 +63,6 @@
     pointer-events: none;
   }
 
-  #goto-end {
-    position: absolute;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #c00;
-    color: #fff;
-    border: none;
-    padding: 5px 18px;
-    font-family: monospace;
-    font-size: 13px;
-    font-weight: bold;
-    cursor: pointer;
-    z-index: 50;
-    letter-spacing: 0.05em;
-  }
-
   /* Expanding white box — grows from plane position to fill screen */
   #expand-box {
     position: fixed;
@@ -145,7 +128,6 @@
   <div id="world">
     <div class="symbol" id="sym-l"></div>
     <div class="symbol" id="sym-r"></div>
-    <button id="goto-end">GO TO END</button>
   </div>
 </div>
 
@@ -300,7 +282,6 @@ const expandBox    = document.getElementById('expand-box');
 const whiteScreen  = document.getElementById('white-screen');
 const beginOverlay = document.getElementById('begin-overlay');
 const beginBtn     = document.getElementById('begin-btn');
-const gotoEndBtn   = document.getElementById('goto-end');
 const clockEl      = document.getElementById('clock');
 const audioA       = document.getElementById('audio-a');
 const audioB       = document.getElementById('audio-b');
@@ -507,54 +488,6 @@ beginBtn.addEventListener('click', () => {
 });
 
 // GO TO 4:00 (debug — jumps to 4-minute mark to preview "I am here" reveal)
-gotoEndBtn.addEventListener('click', () => {
-  if (!started) {
-    started = true;
-    beginOverlay.style.display = 'none';
-  }
-
-  // Reset phase-2 / phase-3 state
-  sym2Active     = false;
-  musicFadeStartT = -1;
-  phase3Entered  = false;
-  phase = 0; phaseT = 0;
-
-  // Restore symbols into world div and clear phase-2 style overrides
-  if (!world.contains(symLEl)) world.appendChild(symLEl);
-  if (!world.contains(symREl)) world.appendChild(symREl);
-  for (const el of [symLEl, symREl]) {
-    el.style.position = '';
-    el.style.top      = '';
-    el.style.left     = '';
-    el.style.transform = '';
-    el.style.zIndex   = '';
-    el.style.opacity  = '';
-    el.style.display  = '';
-  }
-
-  // Reset overlays
-  expandBox.style.opacity   = '0';
-  whiteScreen.style.opacity = '0';
-
-  // Reset "I am here" stopped flag so it can cycle again after jump
-  sectionStates.forEach(s => { s.twStopped = false; });
-
-  // Reset audio crossfade state and restart cleanly
-  masterVolume = 1.0;
-  xfadeActive  = false;
-  xfadeT       = 0;
-  if (audioA) { audioA.pause(); audioA.currentTime = 0; audioA.volume = 0; }
-  if (audioB) { audioB.pause(); audioB.currentTime = 0; audioB.volume = 0; }
-  activeAudio  = audioA;
-  nextAudio    = audioB;
-  audioPlaying = true;
-  activeAudio.volume = masterVolume;
-  const gp = activeAudio.play();
-  if (gp && gp.catch) gp.catch(() => {});
-
-  // Jump to 3:30 elapsed — frame loop recomputes margin from elapsed
-  if (lastT !== null) startTime = lastT - 210 * 1000;
-});
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
