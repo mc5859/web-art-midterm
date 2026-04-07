@@ -168,8 +168,8 @@ const EDGE_PAD       = 80;
 const SHRINK_DUR     = 300;
 const MAX_MARGIN     = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
 const APPROACH_SPEED = MAX_MARGIN / SHRINK_DUR;                 // ~39.6 px/s (avg)
-const DEPART_SPEED   = APPROACH_SPEED;                          // same speed for departure
-const HOLD_DUR_PHASE   = 12.5;  // 2.5× original 5s
+const DEPART_SPEED   = APPROACH_SPEED * 0.8;                    // 20% slower than approach
+const HOLD_DUR_PHASE   = 7.0;   // pause when symbols meet
 const DRAG_SENSITIVITY = 0.45; // fraction of drag distance applied to scroll
 const SCROLL_LERP      = 0.07; // lerp factor per frame — world drifts with inertia
 const EXPAND_DUR     = 16.0;   // seconds for box to expand to fullscreen
@@ -184,20 +184,20 @@ const SECTIONS = [
   { id:'L1',  worldX: 1400,  side:'left',  topPx: 40,
     lines:[
       'i wonder what your end looks like from here',
-      'whether you feel the same cold'
+      'do you feel the same cold'
     ]
   },
   { id:'L1h', worldX: 4200,  side:'left',  topPx: 128,
     lines:[
-      'i have been thinking of you without stopping',
-      'if you are carrying what i left behind'
+      'have you thought of me',
+      'do you carry what I left behind'
     ]
   },
   // ── Farther from symbols — general/poetic ──
   { id:'L2',  worldX: 7000,  side:'left',  topPx: 60,
     lines:[
-      'a ceremony held its form even after',
-      'what the body carries when the mind stops'
+      'the same day again',
+      'my body carries you when my mind cannot'
     ]
   },
   { id:'L2h', worldX: 9600,  side:'left',  topPx: 145,
@@ -208,39 +208,39 @@ const SECTIONS = [
   },
   { id:'L3',  worldX: 11200, side:'left',  topPx: 72,
     lines:[
-      'every step toward',
-      'every step away'
+      'I am here',
+      'I am here'
     ]
   },
   { id:'R3',  worldX: 12800, side:'right', topPx: 110,
     lines:[
-      'almost',
-      'the ground changes here'
+      'I am here',
+      'I am here'
     ]
   },
   { id:'R2h', worldX: 14400, side:'right', topPx: 42,
     lines:[
-      'what stone holds that water cannot',
-      'what was always going to erode'
+      'slipping through my hands',
+      'was this set'
     ]
   },
   { id:'R2',  worldX: 17000, side:'right', topPx: 132,
     lines:[
       'the same day again',
-      'nothing from that direction'
+      'nothing from your direction'
     ]
   },
   // ── Near right symbol — personal ──
   { id:'R1h', worldX: 19800, side:'right', topPx: 55,
     lines:[
-      'i keep waiting to feel the distance close',
+      'I will always think of you',
       'you must be tired too'
     ]
   },
   { id:'R1',  worldX: 22600, side:'right', topPx: 148,
     lines:[
-      'i have been watching your direction all along',
-      'what we are moving toward or away from'
+      'have you been looking in my direction',
+      'are we moving toward or away'
     ]
   },
 ];
