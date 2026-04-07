@@ -207,13 +207,13 @@ const SECTIONS = [
       'something ending that never fully'
     ]
   },
-  { id:'L3',  worldX: 11200, side:'left',  topPx: 72,
+  { id:'L3',  worldX: 11200, side:'left',  topPx: 72,  revealAtEnd: true,
     lines:[
       'I am here',
       'I am here'
     ]
   },
-  { id:'R3',  worldX: 12800, side:'right', topPx: 110,
+  { id:'R3',  worldX: 12800, side:'right', topPx: 110, revealAtEnd: true,
     lines:[
       'I am here',
       'I am here'
@@ -262,6 +262,11 @@ let symRScreenX = 0, symRScreenY = 0;
 
 // Phase 2: expand box start rect
 let expandStartLeft = 0, expandStartTop = 0, expandStartW = 0, expandStartH = 0;
+
+// Music fade: set once when both circles are off-screen and white is fully opaque
+let musicFadeStartT = -1;
+// Phase 3 entry: run cleanup once
+let phase3Entered = false;
 
 // Smooth scroll target (lerped toward each frame)
 let targetScrollLeft = 0;
@@ -397,7 +402,12 @@ gotoEndBtn.addEventListener('click', () => {
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp  = (a, b, t)   => a + (b - a) * t;
 
-function textOpacity(worldX, side) {
+function textOpacity(worldX, side, revealAtEnd) {
+  if (revealAtEnd) {
+    // Invisible until symbols are 85% converged, then fade in
+    const thresh = MAX_MARGIN * 0.85;
+    return lerp(0, 0.85, clamp((margin - thresh) / (MAX_MARGIN - thresh), 0, 1));
+  }
   const dist = side === 'left'
     ? worldX - margin
     : (FULL_W - worldX) - margin;
@@ -544,17 +554,29 @@ function frame(ts) {
       whiteScreen.style.opacity = clamp((phaseT - fadeStart) / FADE_DUR_END, 0, 1);
     }
 
-    // Fade audio: starts once white screen is fully opaque, reaches 0 after MUSIC_FADE_DUR
-    const musicFadeStart = fadeStart + FADE_DUR_END;  // = 22.5s
-    if (phaseT > musicFadeStart) {
-      audio.volume = Math.max(0, 1.0 - (phaseT - musicFadeStart) / MUSIC_FADE_DUR);
+    // Music fade: triggered once both circles are off-screen AND white is fully opaque
+    const vwCheck = window.innerWidth;
+    const symLOff = symLScreenX > vwCheck + SYM_W;
+    const symROff = symRScreenX < -SYM_W;
+    const screenWhite = parseFloat(whiteScreen.style.opacity) >= 1.0;
+    if (musicFadeStartT < 0 && symLOff && symROff && screenWhite) {
+      musicFadeStartT = phaseT;
+    }
+    if (musicFadeStartT >= 0) {
+      audio.volume = Math.max(0, 1.0 - (phaseT - musicFadeStartT) / MUSIC_FADE_DUR);
     }
 
-    if (phaseT > musicFadeStart + MUSIC_FADE_DUR + 1.0) phase = 3;
+    if (musicFadeStartT >= 0 && phaseT > musicFadeStartT + MUSIC_FADE_DUR + 1.0) phase = 3;
   }
 
-  // ── Phase 3: Done — held white state ────────────────────────────────────
-  // no updates needed
+  // ── Phase 3: Done — hide symbols, hold white state ───────────────────────
+  else if (phase === 3) {
+    if (!phase3Entered) {
+      phase3Entered = true;
+      symLEl.style.display = 'none';
+      symREl.style.display = 'none';
+    }
+  }
 
   // ── Smooth scroll toward target (gives world inertia/drift) ─────────────
   if (phase < 2) {
@@ -586,7 +608,7 @@ function frame(ts) {
       el.style.opacity = 0; el.textContent = ''; return;
     }
     el.style.left = rx + 'px';
-    const baseOp    = textOpacity(sec.worldX, sec.side);
+    const baseOp    = textOpacity(sec.worldX, sec.side, sec.revealAtEnd);
     const fadeAlpha = stepTypewriter(state, dt);
     el.textContent  = state.displayText;
     el.style.opacity = baseOp * fadeAlpha;
