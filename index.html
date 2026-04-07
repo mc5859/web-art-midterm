@@ -173,7 +173,7 @@ const MAX_MARGIN     = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
 const APPROACH_SPEED = MAX_MARGIN / SHRINK_DUR;                 // ~39.6 px/s (avg)
 const DEPART_SPEED   = APPROACH_SPEED * 0.8;                    // 20% slower than approach
 const HOLD_DUR_PHASE   = 7.0;   // pause when symbols meet
-const DRAG_SENSITIVITY = 0.45; // fraction of drag distance applied to scroll
+const DRAG_SENSITIVITY = 0.54; // fraction of drag distance applied to scroll
 const SCROLL_LERP      = 0.07; // lerp factor per frame — world drifts with inertia
 const EXPAND_DUR     = 16.0;   // seconds for box to expand to fullscreen
 const FADE_DELAY     = 2.5;    // seconds after box full before white fade starts
@@ -356,6 +356,37 @@ const markEls = [];
   }
 }
 
+// ── CLICK MARKS + BUMP SOUND ─────────────────────────────────────────────────
+const CLICK_GLYPHS = ['.', '·', '—', '×', '∙', '+', '/', '|', '*', '`', '~', '^'];
+const clickMarkEls = [];
+let bumpCtx = null;
+
+function playClickBump() {
+  try {
+    if (!bumpCtx) bumpCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const play = () => {
+      const dur = 0.09;
+      const buf = bumpCtx.createBuffer(1, Math.floor(bumpCtx.sampleRate * dur), bumpCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const src = bumpCtx.createBufferSource();
+      src.buffer = buf;
+      const lpf = bumpCtx.createBiquadFilter();
+      lpf.type = 'lowpass'; lpf.frequency.value = 160;
+      const gain = bumpCtx.createGain();
+      gain.gain.setValueAtTime(0.06, bumpCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, bumpCtx.currentTime + dur);
+      src.connect(lpf); lpf.connect(gain); gain.connect(bumpCtx.destination);
+      src.start();
+    };
+    if (bumpCtx.state === 'suspended') {
+      bumpCtx.resume().then(play);
+    } else {
+      play();
+    }
+  } catch(e) {}
+}
+
 // ── AUDIO ─────────────────────────────────────────────────────────────────────
 function startAudio() {
   activeAudio  = audioA;
@@ -418,9 +449,27 @@ wrapper.addEventListener('mousedown', e => {
   isDragging      = true;
   dragStartX      = e.clientX;
   dragScrollAt    = wrapper.scrollLeft;
-  targetScrollLeft = wrapper.scrollLeft;  // anchor target to current position
+  targetScrollLeft = wrapper.scrollLeft;
   wrapper.classList.add('dragging');
   e.preventDefault();
+
+  // Place a click mark at the cursor position (only inside world, only before circles touch)
+  if (phase < 1 && started) {
+    const worldRect = world.getBoundingClientRect();
+    if (e.clientX >= worldRect.left && e.clientX <= worldRect.right &&
+        e.clientY >= worldRect.top  && e.clientY <= worldRect.bottom) {
+      const rx = e.clientX - worldRect.left;
+      const ry = e.clientY - worldRect.top;
+      const el = document.createElement('span');
+      el.className = 'mark';
+      el.textContent = CLICK_GLYPHS[Math.floor(Math.random() * CLICK_GLYPHS.length)];
+      el.style.top = Math.floor(ry) + 'px';
+      el.dataset.wx = rx + margin;  // store world coordinate
+      world.appendChild(el);
+      clickMarkEls.push(el);
+      playClickBump();
+    }
+  }
 });
 document.addEventListener('mousemove', e => {
   if (!isDragging) return;
@@ -730,6 +779,18 @@ function frame(ts) {
 
   // ── Marks ────────────────────────────────────────────────────────────────
   markEls.forEach(el => {
+    const wx = parseFloat(el.dataset.wx);
+    const rx = wx - margin;
+    if (!showText || rx < 0 || rx > currentW) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = '';
+      el.style.left = rx + 'px';
+    }
+  });
+
+  // ── Click marks ───────────────────────────────────────────────────────────
+  clickMarkEls.forEach(el => {
     const wx = parseFloat(el.dataset.wx);
     const rx = wx - margin;
     if (!showText || rx < 0 || rx > currentW) {
