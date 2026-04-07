@@ -374,7 +374,7 @@ function playClickBump() {
       const lpf = bumpCtx.createBiquadFilter();
       lpf.type = 'lowpass'; lpf.frequency.value = 160;
       const gain = bumpCtx.createGain();
-      gain.gain.setValueAtTime(0.06, bumpCtx.currentTime);
+      gain.gain.setValueAtTime(0.1, bumpCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, bumpCtx.currentTime + dur);
       src.connect(lpf); lpf.connect(gain); gain.connect(bumpCtx.destination);
       src.start();
@@ -496,6 +496,9 @@ wrapper.addEventListener('touchmove', e => {
 beginBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
+  // Create and unlock the bump AudioContext here during a guaranteed user gesture
+  if (!bumpCtx) bumpCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (bumpCtx.state === 'suspended') bumpCtx.resume();
   startAudio();
   beginOverlay.style.opacity = '0';
   setTimeout(() => { beginOverlay.style.display = 'none'; }, 1500);
