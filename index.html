@@ -175,6 +175,7 @@ const SCROLL_LERP      = 0.07; // lerp factor per frame — world drifts with in
 const EXPAND_DUR     = 16.0;   // seconds for box to expand to fullscreen
 const FADE_DELAY     = 2.5;    // seconds after box full before white fade starts
 const FADE_DUR_END   = 4.0;    // white fade duration
+const MUSIC_FADE_DUR = 5.0;    // seconds to fade music to 0 after screen is white
 
 // ── TEXT SECTIONS ─────────────────────────────────────────────────────────────
 // Outer sections (close to symbols at start) = personal voice
@@ -543,10 +544,13 @@ function frame(ts) {
       whiteScreen.style.opacity = clamp((phaseT - fadeStart) / FADE_DUR_END, 0, 1);
     }
 
-    // Fade audio gently
-    audio.volume = Math.max(0, audio.volume - dt * 0.04);
+    // Fade audio: starts once white screen is fully opaque, reaches 0 after MUSIC_FADE_DUR
+    const musicFadeStart = fadeStart + FADE_DUR_END;  // = 22.5s
+    if (phaseT > musicFadeStart) {
+      audio.volume = Math.max(0, 1.0 - (phaseT - musicFadeStart) / MUSIC_FADE_DUR);
+    }
 
-    if (phaseT > fadeStart + FADE_DUR_END + 1.0) phase = 3;
+    if (phaseT > musicFadeStart + MUSIC_FADE_DUR + 1.0) phase = 3;
   }
 
   // ── Phase 3: Done — held white state ────────────────────────────────────
