@@ -362,28 +362,22 @@ const clickMarkEls = [];
 let bumpCtx = null;
 
 function playClickBump() {
+  if (!bumpCtx) return;
   try {
-    if (!bumpCtx) bumpCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const play = () => {
-      const dur = 0.09;
-      const buf = bumpCtx.createBuffer(1, Math.floor(bumpCtx.sampleRate * dur), bumpCtx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-      const src = bumpCtx.createBufferSource();
-      src.buffer = buf;
-      const lpf = bumpCtx.createBiquadFilter();
-      lpf.type = 'lowpass'; lpf.frequency.value = 160;
-      const gain = bumpCtx.createGain();
-      gain.gain.setValueAtTime(0.1, bumpCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, bumpCtx.currentTime + dur);
-      src.connect(lpf); lpf.connect(gain); gain.connect(bumpCtx.destination);
-      src.start();
-    };
-    if (bumpCtx.state === 'suspended') {
-      bumpCtx.resume().then(play);
-    } else {
-      play();
-    }
+    const t = bumpCtx.currentTime;
+    const dur = 0.09;
+    const buf = bumpCtx.createBuffer(1, Math.floor(bumpCtx.sampleRate * dur), bumpCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = bumpCtx.createBufferSource();
+    src.buffer = buf;
+    const lpf = bumpCtx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 160;
+    const gain = bumpCtx.createGain();
+    gain.gain.setValueAtTime(0.1, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(lpf); lpf.connect(gain); gain.connect(bumpCtx.destination);
+    src.start(t);
   } catch(e) {}
 }
 
@@ -496,9 +490,15 @@ wrapper.addEventListener('touchmove', e => {
 beginBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
-  // Create and unlock the bump AudioContext here during a guaranteed user gesture
+  // Create and fully unlock bumpCtx during this user gesture by playing a silent buffer
   if (!bumpCtx) bumpCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (bumpCtx.state === 'suspended') bumpCtx.resume();
+  bumpCtx.resume().then(() => {
+    const silent = bumpCtx.createBuffer(1, 1, bumpCtx.sampleRate);
+    const src = bumpCtx.createBufferSource();
+    src.buffer = silent;
+    src.connect(bumpCtx.destination);
+    src.start(0);
+  });
   startAudio();
   beginOverlay.style.opacity = '0';
   setTimeout(() => { beginOverlay.style.display = 'none'; }, 1500);
