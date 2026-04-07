@@ -169,8 +169,10 @@ const SHRINK_DUR     = 300;
 const MAX_MARGIN     = (FULL_W - (2 * EDGE_PAD + SYM_W)) / 2;  // 11880
 const APPROACH_SPEED = MAX_MARGIN / SHRINK_DUR;                 // ~39.6 px/s (avg)
 const DEPART_SPEED   = APPROACH_SPEED;                          // same speed for departure
-const HOLD_DUR_PHASE = 12.5;   // 2.5× original 5s
-const EXPAND_DUR     = 8.0;    // seconds for box to expand to fullscreen
+const HOLD_DUR_PHASE   = 12.5;  // 2.5× original 5s
+const DRAG_SENSITIVITY = 0.45; // fraction of drag distance applied to scroll
+const SCROLL_LERP      = 0.07; // lerp factor per frame — world drifts with inertia
+const EXPAND_DUR     = 16.0;   // seconds for box to expand to fullscreen
 const FADE_DELAY     = 2.5;    // seconds after box full before white fade starts
 const FADE_DUR_END   = 4.0;    // white fade duration
 
@@ -260,6 +262,9 @@ let symRScreenX = 0, symRScreenY = 0;
 // Phase 2: expand box start rect
 let expandStartLeft = 0, expandStartTop = 0, expandStartW = 0, expandStartH = 0;
 
+// Smooth scroll target (lerped toward each frame)
+let targetScrollLeft = 0;
+
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const world        = document.getElementById('world');
 const wrapper      = document.getElementById('scroll-wrapper');
@@ -336,29 +341,32 @@ let dragScrollAt = 0;
 
 wrapper.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
-  isDragging   = true;
-  dragStartX   = e.clientX;
-  dragScrollAt = wrapper.scrollLeft;
+  isDragging      = true;
+  dragStartX      = e.clientX;
+  dragScrollAt    = wrapper.scrollLeft;
+  targetScrollLeft = wrapper.scrollLeft;  // anchor target to current position
   wrapper.classList.add('dragging');
   e.preventDefault();
 });
 document.addEventListener('mousemove', e => {
   if (!isDragging) return;
-  wrapper.scrollLeft = dragScrollAt - (e.clientX - dragStartX);
+  targetScrollLeft = dragScrollAt - (e.clientX - dragStartX) * DRAG_SENSITIVITY;
 });
 document.addEventListener('mouseup', () => {
   isDragging = false;
   wrapper.classList.remove('dragging');
+  // target stays where it is — scroll coasts to a stop naturally via lerp
 });
 wrapper.addEventListener('wheel', e => e.preventDefault(), { passive: false });
 
 let touchX = 0, touchScroll = 0;
 wrapper.addEventListener('touchstart', e => {
-  touchX      = e.touches[0].clientX;
-  touchScroll = wrapper.scrollLeft;
+  touchX           = e.touches[0].clientX;
+  touchScroll      = wrapper.scrollLeft;
+  targetScrollLeft = wrapper.scrollLeft;
 }, { passive: true });
 wrapper.addEventListener('touchmove', e => {
-  wrapper.scrollLeft = touchScroll - (e.touches[0].clientX - touchX);
+  targetScrollLeft = touchScroll - (e.touches[0].clientX - touchX) * DRAG_SENSITIVITY;
 }, { passive: true });
 
 // ── BEGIN ─────────────────────────────────────────────────────────────────────
@@ -369,6 +377,7 @@ beginBtn.addEventListener('click', () => {
   beginOverlay.style.opacity = '0';
   setTimeout(() => { beginOverlay.style.display = 'none'; }, 1500);
   wrapper.scrollLeft = (FULL_W - window.innerWidth) / 2;
+  targetScrollLeft   = wrapper.scrollLeft;
 });
 
 // GO TO END (debug)
@@ -447,6 +456,11 @@ function enterPassthrough() {
   symLScreenY = lRect.top;
   symRScreenX = rRect.left;
   symRScreenY = rRect.top;
+
+  // Move symbols to body so their z-index competes at the root stacking context
+  // (inside #scroll-wrapper they'd be buried below expand-box and white-screen)
+  document.body.appendChild(symLEl);
+  document.body.appendChild(symREl);
 
   symLEl.style.position = 'fixed';
   symLEl.style.top  = symLScreenY + 'px';
@@ -538,6 +552,11 @@ function frame(ts) {
   // ── Phase 3: Done — held white state ────────────────────────────────────
   // no updates needed
 
+  // ── Smooth scroll toward target (gives world inertia/drift) ─────────────
+  if (phase < 2) {
+    wrapper.scrollLeft += (targetScrollLeft - wrapper.scrollLeft) * SCROLL_LERP;
+  }
+
   // ── Compute current plane width ───────────────────────────────────────────
   const currentW = Math.max(2 * EDGE_PAD + SYM_W, FULL_W - 2 * margin);
   world.style.width = currentW + 'px';
@@ -584,6 +603,7 @@ function frame(ts) {
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 world.style.width = FULL_W + 'px';
+targetScrollLeft  = (FULL_W - window.innerWidth) / 2;  // start centered
 requestAnimationFrame(frame);
 </script>
 </body>
