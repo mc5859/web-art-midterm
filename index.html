@@ -157,7 +157,9 @@
 
 <div id="clock">00:00:00</div>
 
-<audio id="audio" loop src="webartsong2.mp3"></audio>
+<!-- Two audio elements for seamless crossfade looping — no loop attribute -->
+<audio id="audio-a" src="webartsong2.mp3"></audio>
+<audio id="audio-b" src="webartsong2.mp3"></audio>
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -176,6 +178,7 @@ const EXPAND_DUR     = 16.0;   // seconds for box to expand to fullscreen
 const FADE_DELAY     = 2.5;    // seconds after box full before white fade starts
 const FADE_DUR_END   = 4.0;    // white fade duration
 const MUSIC_FADE_DUR = 5.0;    // seconds to fade music to 0 after screen is white
+const CROSSFADE_DUR  = 10.0;   // seconds of crossfade overlap at each loop point
 
 // ── TEXT SECTIONS ─────────────────────────────────────────────────────────────
 // Each section has 3 lines — one chosen randomly each cycle (no repeats).
@@ -276,6 +279,14 @@ let musicFadeStartT = -1;
 // Phase 3 entry: run cleanup once
 let phase3Entered = false;
 
+// Music crossfade state
+let masterVolume  = 1.0;    // global volume scalar (0–1), applied to all audio
+let activeAudio   = null;   // currently playing audio element
+let nextAudio     = null;   // element queued for next loop
+let xfadeActive   = false;  // true during crossfade window
+let xfadeT        = 0;      // elapsed time into current crossfade
+let audioPlaying  = false;  // true once startAudio() fires
+
 // Smooth scroll target (lerped toward each frame)
 let targetScrollLeft = 0;
 
@@ -290,7 +301,8 @@ const beginOverlay = document.getElementById('begin-overlay');
 const beginBtn     = document.getElementById('begin-btn');
 const gotoEndBtn   = document.getElementById('goto-end');
 const clockEl      = document.getElementById('clock');
-const audio        = document.getElementById('audio');
+const audioA       = document.getElementById('audio-a');
+const audioB       = document.getElementById('audio-b');
 
 // ── SYMBOLS ───────────────────────────────────────────────────────────────────
 function makeSVG(d) {
@@ -314,7 +326,7 @@ const sectionStates = SECTIONS.map(sec => {
   if (sec.revealAtEnd) el.style.transform = 'translateX(-50%)';
   world.appendChild(el);
   const startIdx = Math.floor(Math.random() * sec.lines.length);
-  return { sec, el, lineIdx: startIdx, twPhase: 'typing', twT: 0, displayText: '' };
+  return { sec, el, lineIdx: startIdx, twPhase: 'typing', twT: 0, displayText: '', twStopped: false };
 });
 
 // ── MARKS — spaced, subtle ────────────────────────────────────────────────────
@@ -345,10 +357,54 @@ const markEls = [];
 
 // ── AUDIO ─────────────────────────────────────────────────────────────────────
 function startAudio() {
-  audio.currentTime = 0;
-  audio.volume = 1.0;
-  const p = audio.play();
+  activeAudio  = audioA;
+  nextAudio    = audioB;
+  audioPlaying = true;
+  activeAudio.currentTime = 0;
+  activeAudio.volume      = masterVolume;
+  const p = activeAudio.play();
   if (p && p.catch) p.catch(() => {});
+}
+
+// Call once per frame — handles seamless crossfade looping
+function manageCrossfade(dt) {
+  if (!audioPlaying || !activeAudio) return;
+  const dur = activeAudio.duration;
+  if (!dur || isNaN(dur)) return;  // not loaded yet
+
+  const timeLeft = dur - activeAudio.currentTime;
+
+  // Kick off crossfade when we're CROSSFADE_DUR seconds from the end
+  if (!xfadeActive && timeLeft <= CROSSFADE_DUR && timeLeft > 0) {
+    xfadeActive = true;
+    xfadeT      = 0;
+    nextAudio.currentTime = 0;
+    nextAudio.volume      = 0;
+    const p = nextAudio.play();
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  if (xfadeActive) {
+    xfadeT += dt;
+    const xf = clamp(xfadeT / CROSSFADE_DUR, 0, 1);
+    activeAudio.volume = masterVolume * (1 - xf);
+    nextAudio.volume   = masterVolume * xf;
+
+    if (xf >= 1.0 || activeAudio.currentTime >= dur - 0.05) {
+      // Crossfade complete — swap roles
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+      const tmp = activeAudio;
+      activeAudio  = nextAudio;
+      nextAudio    = tmp;
+      activeAudio.volume = masterVolume;
+      nextAudio.volume   = 0;
+      xfadeActive = false;
+      xfadeT      = 0;
+    }
+  } else {
+    activeAudio.volume = masterVolume;
+  }
 }
 
 // ── DRAG SCROLL ───────────────────────────────────────────────────────────────
@@ -402,7 +458,6 @@ gotoEndBtn.addEventListener('click', () => {
   if (!started) {
     started = true;
     beginOverlay.style.display = 'none';
-    startAudio();
   }
 
   // Reset phase-2 / phase-3 state
@@ -424,13 +479,28 @@ gotoEndBtn.addEventListener('click', () => {
     el.style.display  = '';
   }
 
-  // Reset overlays and audio
+  // Reset overlays
   expandBox.style.opacity   = '0';
   whiteScreen.style.opacity = '0';
-  audio.volume = 1.0;
 
-  // Jump to 4:00 elapsed — frame loop recomputes margin from elapsed
-  if (lastT !== null) startTime = lastT - 240 * 1000;
+  // Reset "I am here" stopped flag so it can cycle again after jump
+  sectionStates.forEach(s => { s.twStopped = false; });
+
+  // Reset audio crossfade state and restart cleanly
+  masterVolume = 1.0;
+  xfadeActive  = false;
+  xfadeT       = 0;
+  if (audioA) { audioA.pause(); audioA.currentTime = 0; audioA.volume = 0; }
+  if (audioB) { audioB.pause(); audioB.currentTime = 0; audioB.volume = 0; }
+  activeAudio  = audioA;
+  nextAudio    = audioB;
+  audioPlaying = true;
+  activeAudio.volume = masterVolume;
+  const gp = activeAudio.play();
+  if (gp && gp.catch) gp.catch(() => {});
+
+  // Jump to 3:30 elapsed — frame loop recomputes margin from elapsed
+  if (lastT !== null) startTime = lastT - 210 * 1000;
 });
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -439,8 +509,8 @@ const lerp  = (a, b, t)   => a + (b - a) * t;
 
 function textOpacity(worldX, side, revealAtEnd) {
   if (revealAtEnd) {
-    // Invisible until ~4:00 (99.2% converged), then fade in as circles close
-    const thresh = MAX_MARGIN * 0.992;
+    // Invisible until ~3:40 (98.1% converged), then fade in as circles close
+    const thresh = MAX_MARGIN * 0.981;
     return lerp(0, 0.85, clamp((margin - thresh) / (MAX_MARGIN - thresh), 0, 1));
   }
   const dist = side === 'left'
@@ -490,7 +560,7 @@ function stepTypewriter(state, dt) {
     }
   } else if (state.twPhase === 'pause') {
     fadeAlpha = 0;
-    if (state.twT >= pauseDur) {
+    if (!state.twStopped && state.twT >= pauseDur) {
       const choices = lines.map((_, i) => i).filter(i => i !== state.lineIdx);
       state.lineIdx = choices[Math.floor(Math.random() * choices.length)];
       state.twPhase = 'typing'; state.twT = 0;
@@ -550,6 +620,7 @@ function frame(ts) {
   lastT = ts;
   elapsed = (ts - startTime) / 1000;
   updateClock(elapsed);
+  manageCrossfade(dt);
 
   // ── Phase 0: Shrink (ease-out cubic — slows as symbols approach) ──────────
   if (phase === 0) {
@@ -603,7 +674,7 @@ function frame(ts) {
       musicFadeStartT = phaseT;
     }
     if (musicFadeStartT >= 0) {
-      audio.volume = Math.max(0, 1.0 - (phaseT - musicFadeStartT) / MUSIC_FADE_DUR);
+      masterVolume = Math.max(0, 1.0 - (phaseT - musicFadeStartT) / MUSIC_FADE_DUR);
     }
 
     if (musicFadeStartT >= 0 && phaseT > musicFadeStartT + MUSIC_FADE_DUR + 1.0) phase = 3;
@@ -643,6 +714,8 @@ function frame(ts) {
   const showText = phase < 2;
   sectionStates.forEach(state => {
     const { sec, el } = state;
+    // Once circles touch (phase ≥ 1), let revealAtEnd finish current cycle then stop
+    if (phase >= 1 && sec.revealAtEnd) state.twStopped = true;
     const rx = sec.worldX - margin;
     if (!showText || rx < 0 || rx > currentW) {
       el.style.opacity = 0; el.textContent = ''; return;
