@@ -208,11 +208,11 @@ const SECTIONS = [
     ]
   },
   { id:'L3',  worldX: 11900, side:'left',  topPx: 88,  revealAtEnd: true,
-    twHoldSec: 3.5, twFadeSec: 2.5, twPauseSec: 1.5,
+    twTypeSec: 0.10, twHoldSec: 4.5, twFadeSec: 3.5, twPauseSec: 2.0,
     lines:[ 'I am here', 'I am here' ]
   },
   { id:'R3',  worldX: 12100, side:'right', topPx: 88,  revealAtEnd: true,
-    twHoldSec: 3.5, twFadeSec: 2.5, twPauseSec: 1.5,
+    twTypeSec: 0.10, twHoldSec: 4.5, twFadeSec: 3.5, twPauseSec: 2.0,
     lines:[ 'I am here', 'I am here' ]
   },
   { id:'R2h', worldX: 14400, side:'right', topPx: 42,
@@ -298,6 +298,8 @@ const sectionStates = SECTIONS.map(sec => {
   const el = document.createElement('div');
   el.className = 'text-section';
   el.style.top = sec.topPx + 'px';
+  // Center revealAtEnd text around its worldX anchor (not left-anchored)
+  if (sec.revealAtEnd) el.style.transform = 'translateX(-50%)';
   world.appendChild(el);
   return { sec, el, lineIdx: 0, twPhase: 'typing', twT: 0, displayText: '' };
 });
@@ -452,6 +454,7 @@ const PAUSE_DUR = 2;
 
 function stepTypewriter(state, dt) {
   const lines    = state.sec.lines;
+  const typeSpd  = state.sec.twTypeSec  ?? TYPE_SPD;
   const holdDur  = state.sec.twHoldSec  ?? HOLD_DUR;
   const fadeDur  = state.sec.twFadeSec  ?? FADE_DUR;
   const pauseDur = state.sec.twPauseSec ?? PAUSE_DUR;
@@ -459,7 +462,7 @@ function stepTypewriter(state, dt) {
   let fadeAlpha = 1;
 
   if (state.twPhase === 'typing') {
-    const chars = Math.floor(state.twT / TYPE_SPD);
+    const chars = Math.floor(state.twT / typeSpd);
     state.displayText = lines[state.lineIdx].slice(0, chars);
     if (chars >= lines[state.lineIdx].length) {
       state.displayText = lines[state.lineIdx];
